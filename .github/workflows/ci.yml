@@ -1,0 +1,33 @@
+name: Agent Foundation CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions: {}
+
+jobs:
+  client:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Validate client-only policy
+        run: |
+          python3 scripts/check-foundation.py
+          python3 -m unittest discover -s tools/tests -v
+      - name: Install exact Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt,clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo test --locked --workspace --all-targets --all-features
+      - name: Verify optimized transport admission and DNS shutdown
+        run: |
+          cargo test --locked --release -p sarmg-agent-secure-http --lib -- --exact transport_tests::loopback_http_tracks_build_mode
+          cargo test --locked --release -p sarmg-agent-secure-http --lib dns::tests::
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings

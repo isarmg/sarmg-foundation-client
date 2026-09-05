@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = [
+  "rust/crates/sarmg-agent-runtime",
+  "rust/crates/sarmg-mobile-ffi",
+  "rust/crates/sarmg-agent-fs-safety",
+  "rust/crates/sarmg-agent-secret",
+  "rust/crates/sarmg-agent-secret-envelope",
+  "rust/crates/sarmg-agent-error",
+  "rust/crates/sarmg-agent-secure-http",
+]
+
+[workspace.package]
+version = "0.6.0"
+edition = "2024"
+rust-version = "1.98"
+authors = ["sarmg <isarmg@163.com>"]
+license = "Apache-2.0"
+repository = "https://github.com/isarmg/sarmg-foundation-agent"
+homepage = "https://github.com/isarmg/sarmg-foundation-agent"
+
+[workspace.dependencies]
+aes-gcm = "0.10"
+hkdf = "0.12"
+async-trait = "0.1"
+getrandom = "0.4"
+hickory-resolver = { version = "=0.26.2", default-features = false, features = ["tokio", "system-config"] }
+ipnet = "2"
+rand = "0.9"
+reqwest = { version = "0.13", default-features = false, features = ["http2"] }
+rustix = { version = "1.1", features = ["fs", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }
+url = "2"
+zeroize = "1.8"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"

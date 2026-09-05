@@ -1,0 +1,50 @@
+name: Agent Foundation Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify exact release identity
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version, 'release tag/version mismatch'
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert revision == os.environ['GITHUB_SHA'], 'release source mismatch'
+          assert not subprocess.check_output(['git', 'status', '--porcelain']), 'dirty release source'
+          PY
+      - name: Package verified source library
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir "$RUNNER_TEMP/agent-release"
+          git archive --format=tar.gz --prefix="sarmg-foundation-agent-${RELEASE_TAG}/" --output="$RUNNER_TEMP/agent-release/sarmg-foundation-agent-${RELEASE_TAG}.tar.gz" "$GITHUB_SHA"
+          cd "$RUNNER_TEMP/agent-release"
+          sha256sum "sarmg-foundation-agent-${RELEASE_TAG}.tar.gz" > SHA256SUMS
+      - name: Publish source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/agent-release/"* --verify-tag --title "Sarmg Foundation Agent ${RELEASE_TAG}" --notes-file docs/releases/0.6.0.md

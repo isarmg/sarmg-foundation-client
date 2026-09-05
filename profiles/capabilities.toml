@@ -1,0 +1,37 @@
+format = 1
+
+[capabilities.private-state]
+owner = "foundation"
+state = "current"
+
+[capabilities.bounded-spool]
+owner = "foundation"
+state = "current"
+
+[capabilities.https-delivery]
+owner = "foundation"
+state = "current"
+
+[capabilities.doctor]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-queue]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-state]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-ffi]
+owner = "foundation"
+state = "current"
+
+[capabilities.secret-envelope]
+owner = "foundation"
+state = "current"
+
+[capabilities.local-web-management]
+owner = "product-adapter"
+state = "current"

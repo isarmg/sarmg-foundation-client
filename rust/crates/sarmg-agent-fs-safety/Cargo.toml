@@ -1,0 +1,21 @@
+[package]
+name = "sarmg-agent-fs-safety"
+description = "Typed portable and Linux filesystem safety primitives for Sarmg products"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+rustix.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
