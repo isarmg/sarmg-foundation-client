@@ -1,5 +1,7 @@
 # Sarmg Foundation Agent
 
+发布状态：`0.6.0` 为预发布源码库。Host 原生 CI 已确认 Windows Spool 创建失败；原生文件句柄与持久化后端仍是发行阻断，不得将 Linux CI 通过解释为跨平台可用。详情见 [0.6.0 发布后验收](docs/releases/0.6.0.md)。
+
 `sarmg-foundation-agent` 是独立的 Agent/客户端规范、基础实现和验收工具仓库。
 只规定桌面 Agent、Android/iOS 客户端、移动 FFI 和管理这些客户端自身的 Web 的行为。
 管理 Server 的 Web 归 `sarmg-foundation-server`；管理 Agent/客户端本机配置、配对和服务状态的 Web 归本仓。
