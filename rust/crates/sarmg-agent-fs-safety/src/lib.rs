@@ -597,9 +597,13 @@ fn open_portable_directory(path: &Path) -> Result<File, Error> {
         const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
         const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        const FILE_SHARE_READ_WRITE: u32 = 0x0000_0003;
         let directory = OpenOptions::new()
             .read(true)
             .write(true)
+            // Windows pins the directory name for the handle lifetime. Unlike
+            // Unix openat, portable child operations must not permit rebinding.
+            .share_mode(FILE_SHARE_READ_WRITE)
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(path)?;
         let metadata = directory.metadata()?;

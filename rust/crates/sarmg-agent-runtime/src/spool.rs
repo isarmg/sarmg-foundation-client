@@ -795,14 +795,31 @@ mod tests {
         let spool = Spool::open(&original, limits()).unwrap();
         let id = enqueue(&spool, 1, 100, vec![1]);
         let moved = temp.path().join("moved");
-        fs::rename(&original, &moved).unwrap();
-        fs::create_dir(&original).unwrap();
-        fs::write(original.join("victim"), b"untouched").unwrap();
+        #[cfg(not(windows))]
+        {
+            fs::rename(&original, &moved).unwrap();
+            fs::create_dir(&original).unwrap();
+            fs::write(original.join("victim"), b"untouched").unwrap();
+        }
+        #[cfg(windows)]
+        {
+            // The native directory handle denies delete sharing: rebinding is
+            // rejected while held, instead of following an openat-style inode.
+            assert!(fs::rename(&original, &moved).is_err());
+            assert!(!moved.exists());
+        }
         assert_eq!(spool.next().unwrap().unwrap().record_id, id);
         enqueue(&spool, 2, 100, vec![2]);
         spool.ack(&id).unwrap();
+        #[cfg(not(windows))]
         assert_eq!(fs::read_dir(&original).unwrap().count(), 1);
         assert_eq!(spool.usage().unwrap().0, 1);
+        #[cfg(windows)]
+        {
+            drop(spool);
+            fs::rename(&original, &moved).unwrap();
+            assert_eq!(Spool::open(&moved, limits()).unwrap().usage().unwrap().0, 1);
+        }
     }
 
     #[cfg(unix)]
