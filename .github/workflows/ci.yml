@@ -9,6 +9,21 @@ on:
 permissions: {}
 
 jobs:
+  windows-storage:
+    permissions:
+      contents: read
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install exact Rust toolchain
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy
+      - name: Test native Windows directory handles and durable spool
+        run: cargo test --locked -p sarmg-agent-fs-safety -p sarmg-agent-runtime --all-targets
+      - name: Lint native Windows storage
+        run: cargo clippy --locked -p sarmg-agent-fs-safety -p sarmg-agent-runtime --all-targets -- -D warnings
   client:
     permissions:
       contents: read

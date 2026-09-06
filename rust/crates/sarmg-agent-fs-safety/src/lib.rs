@@ -182,7 +182,7 @@ impl PrivateDirectory {
             }
             Ok(Self {
                 path: path.to_path_buf(),
-                directory: File::open(path)?,
+                directory: open_portable_directory(path)?,
             })
         }
     }
@@ -273,7 +273,7 @@ impl PrivateDirectory {
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
                 return Err(Error::UnsafeFileType(path.to_path_buf()));
             }
-            let directory = File::open(path)?;
+            let directory = open_portable_directory(path)?;
             Ok(Self {
                 path: path.to_path_buf(),
                 directory,
@@ -418,7 +418,10 @@ impl NoClobberPublish {
                 return Err(Error::DestinationExists(destination.to_path_buf()));
             }
             fs::hard_link(&source, &destination).map_err(Error::Io)?;
-            let file = File::open(&destination)?;
+            let file = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&destination)?;
             file.sync_all()?;
             sync_directory(
                 destination
@@ -564,7 +567,11 @@ pub fn sync_file_and_parent(path: &Path) -> Result<(), Error> {
     }
     #[cfg(not(unix))]
     {
-        File::open(path)?.sync_all()?;
+        OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)?
+            .sync_all()?;
         sync_directory(
             path.parent()
                 .ok_or_else(|| Error::UnsafeRelativePath(path.to_path_buf()))?,
@@ -575,8 +582,36 @@ pub fn sync_directory(path: &Path) -> Result<(), Error> {
     #[cfg(unix)]
     unix::open_directory(path)?.sync_all()?;
     #[cfg(not(unix))]
-    File::open(path)?.sync_all()?;
+    open_portable_directory(path)?.sync_all()?;
     Ok(())
+}
+
+#[cfg(not(unix))]
+fn open_portable_directory(path: &Path) -> Result<File, Error> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+        // CreateFile requires BACKUP_SEMANTICS for directory handles, and
+        // FlushFileBuffers requires write access. Do not follow a final reparse
+        // point or suppress failed flushes: callers must observe durability errors.
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        let directory = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        let metadata = directory.metadata()?;
+        if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(Error::UnsafeFileType(path.to_path_buf()));
+        }
+        Ok(directory)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(File::open(path)?)
+    }
 }
 fn temporary_name() -> Result<String, Error> {
     let mut bytes = [0u8; 16];
@@ -619,6 +654,32 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_directory_handles_publish_flush_lock_and_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("state");
+        assert!(PrivateDirectory::open_existing(&path).is_err());
+        assert!(!path.exists());
+        let root = PrivateDirectory::create(&path).unwrap();
+        root.sync().unwrap();
+        let lock_name = RelativePath::new("session.lock").unwrap();
+        let lock = AdvisoryLock::acquire(&root, &lock_name).unwrap();
+        assert!(matches!(
+            AdvisoryLock::acquire(&root, &lock_name),
+            Err(Error::AlreadyLocked(_))
+        ));
+        let name = EntryName::new("report").unwrap();
+        AtomicFile::create(&root, &name, b"pending").unwrap();
+        drop(root);
+        let reopened = PrivateDirectory::open_existing(&path).unwrap();
+        assert_eq!(reopened.read_bounded(&name, 32).unwrap(), b"pending");
+        AtomicFile::replace(&reopened, &name.as_relative(), b"confirmed").unwrap();
+        assert_eq!(reopened.read_bounded(&name, 32).unwrap(), b"confirmed");
+        reopened.remove_file(&name).unwrap();
+        drop(lock);
+        AdvisoryLock::acquire(&reopened, &lock_name).unwrap();
+    }
     #[cfg(unix)]
     #[test]
     fn open_existing_never_creates_or_repairs_a_directory() {
