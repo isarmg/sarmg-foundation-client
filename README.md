@@ -36,8 +36,8 @@ python3 -m unittest discover -s tools/tests -v
 cargo fmt --all -- --check
 cargo test --locked --workspace --all-targets --all-features
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
-python3 scripts/check-foundation.py --product-root ../host-monitoring
-python3 scripts/check-foundation.py --product-root ../media-backup
+python3 scripts/check-foundation.py --product-root ../host-monitoring-client
+python3 scripts/check-foundation.py --product-root ../media-backup-client
 ```
 
 本仓可独立构建，无需克隆 Server 仓库。Client 命名基线为 `0.7.0`；
