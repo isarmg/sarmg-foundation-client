@@ -1,4 +1,4 @@
-name: Agent Foundation Release
+name: Client Foundation Release
 
 on:
   push:
@@ -38,13 +38,13 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          mkdir "$RUNNER_TEMP/agent-release"
-          git archive --format=tar.gz --prefix="sarmg-foundation-agent-${RELEASE_TAG}/" --output="$RUNNER_TEMP/agent-release/sarmg-foundation-agent-${RELEASE_TAG}.tar.gz" "$GITHUB_SHA"
-          cd "$RUNNER_TEMP/agent-release"
-          sha256sum "sarmg-foundation-agent-${RELEASE_TAG}.tar.gz" > SHA256SUMS
+          mkdir "$RUNNER_TEMP/client-release"
+          git archive --format=tar.gz --prefix="sarmg-foundation-client-${RELEASE_TAG}/" --output="$RUNNER_TEMP/client-release/sarmg-foundation-client-${RELEASE_TAG}.tar.gz" "$GITHUB_SHA"
+          cd "$RUNNER_TEMP/client-release"
+          sha256sum "sarmg-foundation-client-${RELEASE_TAG}.tar.gz" > SHA256SUMS
       - name: Publish source release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/agent-release/"* --verify-tag --title "Sarmg Foundation Agent ${RELEASE_TAG}" --notes-file docs/releases/0.6.0.md
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/client-release/"* --verify-tag --title "Sarmg Foundation Client ${RELEASE_TAG}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"

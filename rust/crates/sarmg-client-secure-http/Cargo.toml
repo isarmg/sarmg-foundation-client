@@ -1,0 +1,27 @@
+[package]
+name = "sarmg-client-secure-http"
+description = "Finite outbound HTTP policies with URL, address, timeout, redirect, proxy, and response budgets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+hickory-resolver.workspace = true
+ipnet.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+url.workspace = true
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+reqwest = { workspace = true, features = ["native-tls"] }
+
+[target.'cfg(all(not(windows), not(target_os = "macos")))'.dependencies]
+reqwest = { workspace = true, features = ["rustls"] }
+
+[lints]
+workspace = true

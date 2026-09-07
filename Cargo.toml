@@ -1,23 +1,23 @@
 [workspace]
 resolver = "3"
 members = [
-  "rust/crates/sarmg-agent-runtime",
+  "rust/crates/sarmg-client-runtime",
   "rust/crates/sarmg-mobile-ffi",
-  "rust/crates/sarmg-agent-fs-safety",
-  "rust/crates/sarmg-agent-secret",
-  "rust/crates/sarmg-agent-secret-envelope",
-  "rust/crates/sarmg-agent-error",
-  "rust/crates/sarmg-agent-secure-http",
+  "rust/crates/sarmg-client-fs-safety",
+  "rust/crates/sarmg-client-secret",
+  "rust/crates/sarmg-client-secret-envelope",
+  "rust/crates/sarmg-client-error",
+  "rust/crates/sarmg-client-secure-http",
 ]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.98"
 authors = ["sarmg <isarmg@163.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/isarmg/sarmg-foundation-agent"
-homepage = "https://github.com/isarmg/sarmg-foundation-agent"
+repository = "https://github.com/isarmg/sarmg-foundation-client"
+homepage = "https://github.com/isarmg/sarmg-foundation-client"
 
 [workspace.dependencies]
 aes-gcm = "0.10"

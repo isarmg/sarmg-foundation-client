@@ -1,6 +1,6 @@
 # Credential transactions
 
-`sarmg-agent-runtime` owns `CredentialStore`, `CredentialSnapshot`,
+`sarmg-client-runtime` owns `CredentialStore`, `CredentialSnapshot`,
 `CredentialAuthorization` and `CredentialMutation`. Products implement the
 storage adapter and own their revision identities, prepared rotation journals,
 pairing wire, identity/endpoint binding and crash recovery. No Host pairing wire
@@ -61,5 +61,5 @@ an old Active probe, and old OTLP worker termination. Startup and partial-failur
 regressions cover the same bundle boundary. These are not real Collector tests.
 
 This is Linux execution evidence. Windows/macOS native filesystem guarantees,
-remaining native TLS/HTTP integration, full Agent identity adoption and
+remaining native TLS/HTTP integration, full Client identity adoption and
 other P11 acceptance requirements are not completed by these tests.

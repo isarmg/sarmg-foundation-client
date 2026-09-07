@@ -381,7 +381,7 @@ mod tests {
     use super::*;
     #[test]
     fn runtime_ffi_contract_matches_mobile_profile() {
-        let source = include_str!("../../../../profiles/mobile-agent.toml");
+        let source = include_str!("../../../../profiles/mobile-client.toml");
         let mut in_ffi = false;
         let mut values = std::collections::BTreeMap::new();
         for line in source.lines().map(str::trim) {

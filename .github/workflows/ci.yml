@@ -1,4 +1,4 @@
-name: Agent Foundation CI
+name: Client Foundation CI
 
 on:
   push:
@@ -21,9 +21,9 @@ jobs:
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.98.0 --profile minimal --component clippy
       - name: Test native Windows directory handles and durable spool
-        run: cargo test --locked -p sarmg-agent-fs-safety -p sarmg-agent-runtime --all-targets
+        run: cargo test --locked -p sarmg-client-fs-safety -p sarmg-client-runtime --all-targets
       - name: Lint native Windows storage
-        run: cargo clippy --locked -p sarmg-agent-fs-safety -p sarmg-agent-runtime --all-targets -- -D warnings
+        run: cargo clippy --locked -p sarmg-client-fs-safety -p sarmg-client-runtime --all-targets -- -D warnings
   client:
     permissions:
       contents: read
@@ -43,6 +43,6 @@ jobs:
       - run: cargo test --locked --workspace --all-targets --all-features
       - name: Verify optimized transport admission and DNS shutdown
         run: |
-          cargo test --locked --release -p sarmg-agent-secure-http --lib -- --exact transport_tests::loopback_http_tracks_build_mode
-          cargo test --locked --release -p sarmg-agent-secure-http --lib dns::tests::
+          cargo test --locked --release -p sarmg-client-secure-http --lib -- --exact transport_tests::loopback_http_tracks_build_mode
+          cargo test --locked --release -p sarmg-client-secure-http --lib dns::tests::
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings

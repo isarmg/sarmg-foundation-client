@@ -1,0 +1,18 @@
+format = 1
+id = "mobile-client"
+kind = "client"
+formal_targets = [
+  "aarch64-linux-android",
+  "aarch64-apple-ios",
+  "aarch64-apple-ios-sim",
+]
+http_adapters = []
+web_profiles = []
+required_capabilities = ["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]
+optional_capabilities = ["secret-envelope"]
+
+[policy.ffi]
+abi_revision = 2
+max_input_bytes = 16777216
+max_output_bytes = 16777216
+max_handles = 4096

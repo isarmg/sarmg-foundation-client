@@ -9,11 +9,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from agent_policy import ConformanceError, _toml, _walk_dependencies, load_profiles, verify_source
+from client_policy import ConformanceError, _toml, _walk_dependencies, load_profiles, verify_source
 
 PACKAGES = {
-    "sarmg-agent-runtime", "sarmg-mobile-ffi", "sarmg-agent-fs-safety",
-    "sarmg-agent-secret", "sarmg-agent-secret-envelope", "sarmg-agent-error", "sarmg-agent-secure-http",
+    "sarmg-client-runtime", "sarmg-mobile-ffi", "sarmg-client-fs-safety",
+    "sarmg-client-secret", "sarmg-client-secret-envelope", "sarmg-client-error", "sarmg-client-secure-http",
 }
 
 
@@ -27,7 +27,7 @@ def check() -> dict:
     if set(path.parent.name for path in (ROOT / "rust/crates").glob("*/Cargo.toml")) != PACKAGES:
         raise ConformanceError("workspace: unregistered crate")
     version = workspace["package"]["version"]
-    if workspace["package"]["repository"] != "https://github.com/isarmg/sarmg-foundation-agent":
+    if workspace["package"]["repository"] != "https://github.com/isarmg/sarmg-foundation-client":
         raise ConformanceError("workspace: repository identity differs")
     for member in sorted(members):
         path = ROOT / member
@@ -46,7 +46,7 @@ def check() -> dict:
                 dependency = (path / requirement["path"]).resolve(strict=True)
                 if not dependency.is_relative_to(ROOT / "rust/crates") or requirement.get("version") != f"={version}":
                     raise ConformanceError(f"{path}: dependency escapes client workspace or lacks exact version")
-    schema = json.loads((ROOT / "schemas/sarmg-agent.schema.json").read_text())
+    schema = json.loads((ROOT / "schemas/sarmg-client.schema.json").read_text())
     if set(schema["properties"]["components"]["items"]["properties"]["profile"]["enum"]) != set(profiles):
         raise ConformanceError("manifest schema Profile enum differs")
     return {"repository": ROOT.name, "packages": sorted(PACKAGES), "profiles": sorted(profiles)}
@@ -63,7 +63,7 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     except (OSError, ValueError, KeyError, ConformanceError) as error:
-        print(f"sarmg-foundation-agent: FAILED: {error}", file=sys.stderr)
+        print(f"sarmg-foundation-client: FAILED: {error}", file=sys.stderr)
         return 1
 
 

@@ -6,7 +6,7 @@ The current filesystem primitives are being hardened and adopted in P8. This doc
 
 `PrivateDirectory::open_existing` walks the same no-follow descriptors and checks
 the same owner and permissions without creating directories, changing modes or
-syncing files. Read-only Agent diagnostics use this entry point.
+syncing files. Read-only Client diagnostics use this entry point.
 
 `create_child` creates or validates a typed direct child relative to the held
 parent descriptor on Unix. Host hands that capability to `Spool::from_directory`,
@@ -75,7 +75,7 @@ directory and persistent lock):
 | Current Host state | Maximum bytes |
 |---|---:|
 | host-id | 128 |
-| agent-token | 4096 |
+| client-token | 4096 |
 | pairing-state.json | 65536 |
 | auth-state.json | 16384 |
 | active-binding.json | 16384 |
@@ -136,7 +136,7 @@ separate closed visibility policy:
 | Public | 0400, 0440, 0444, 0600, 0640, 0644 |
 
 Host identities are Confidential; CA certificates are Public. Both share
-`sarmg-agent-secure-http::MAX_TLS_INPUT_BYTES` (1 MiB). Empty inputs fail and
+`sarmg-client-secure-http::MAX_TLS_INPUT_BYTES` (1 MiB). Empty inputs fail and
 successful read buffers enter `SecretBytes` before parsing. CA parsing must
 produce at least one certificate: reqwest's rustls `from_pem` path can otherwise
 silently accept text with no certificates. Host now parses a nonempty bundle and
@@ -178,7 +178,7 @@ configuration remains readable through this API as uid/gid 65534 after a root
 replacement. Host's local Unix `fchown`, rename and directory-sync helpers were
 removed; product code retains JSON serialization and business path selection.
 
-`EntryName` represents exactly one canonical filename. `PrivateDirectory::files`, `read_bounded` and `remove_file` use these typed names and the held descriptor on Unix, not reconstructed absolute paths. `AtomicFile::create` provides no-clobber creation; failed collision preserves the occupant. Platform temporaries have one exact random namespace, exposed through `AtomicFile::is_temporary_name` for cleanup under exclusive process ownership. The Agent spool consumes these APIs for all of its file operations.
+`EntryName` represents exactly one canonical filename. `PrivateDirectory::files`, `read_bounded` and `remove_file` use these typed names and the held descriptor on Unix, not reconstructed absolute paths. `AtomicFile::create` provides no-clobber creation; failed collision preserves the occupant. Platform temporaries have one exact random namespace, exposed through `AtomicFile::is_temporary_name` for cleanup under exclusive process ownership. The Client spool consumes these APIs for all of its file operations.
 
 `NoClobberPublish::publish` accepts a private directory and two typed single-component names, not arbitrary source/destination strings. It only publishes a single-linked regular file within that directory. Linux uses `RENAME_NOREPLACE`, with no fallback on unsupported filesystems. The Unix implementation for other operating systems uses link, parent sync, unlink, parent sync. Publication or sync failures must not be interpreted as permission to blindly replay a mutation.
 
@@ -192,7 +192,7 @@ These private-state primitives require exclusive application ownership of the di
 
 `open_file` only returns single-linked regular files and refuses symlinks in all components; NONBLOCK prevents FIFO type probes from hanging. `FileIdentity` and `SingleLinkRequirement` describe opened objects. The Linux directory `AdvisoryLock` holds the anchored root itself instead of a replaceable separate lock pathname.
 
-Products may retain business-specific symlink, upload metadata, tree mutation and crash-recovery semantics while their generic helpers are progressively replaced. Server filesystem consumers are outside this repository. Agent consumers must not use the diagnostic `PrivateDirectory::path`/`resolve` values as a substitute for held-handle mutations.
+Products may retain business-specific symlink, upload metadata, tree mutation and crash-recovery semantics while their generic helpers are progressively replaced. Server filesystem consumers are outside this repository. Client consumers must not use the diagnostic `PrivateDirectory::path`/`resolve` values as a substitute for held-handle mutations.
 
 ## Remaining acceptance
 

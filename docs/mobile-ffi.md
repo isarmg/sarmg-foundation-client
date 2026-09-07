@@ -2,7 +2,7 @@
 
 Foundation owns ABI revision 2, panic containment, input and output bounds,
 generational handles, result allocation/release, JNI Unicode validation and
-exception classes. Media owns Agent DTOs, SQLite operations and the current
+exception classes. Media owns Client DTOs, SQLite operations and the current
 business state identity. There is no previous ABI reader, symbol alias, NUL input
 scanner or thread-local error interface.
 

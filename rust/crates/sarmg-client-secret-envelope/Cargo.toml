@@ -1,0 +1,22 @@
+[package]
+name = "sarmg-client-secret-envelope"
+description = "Domain-separated bounded AES-GCM secret envelopes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aes-gcm.workspace = true
+getrandom.workspace = true
+hkdf.workspace = true
+sarmg-client-secret = { path = "../sarmg-client-secret", version = "=0.7.0" }
+sha2.workspace = true
+thiserror.workspace = true
+zeroize.workspace = true
+
+[lints]
+workspace = true

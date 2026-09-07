@@ -1,18 +1,18 @@
-# Agent secure HTTP
+# Client secure HTTP
 
-`sarmg-agent-secure-http` owns client construction and bounded execution, using
+`sarmg-client-secure-http` owns client construction and bounded execution, using
 reqwest 0.13 with rustls on Linux/other non-native targets and native TLS on
 Windows/macOS. No old reqwest adapter or raw-response execution API remains.
 
-Products supply their user agent, total request timeout, bounded response budget
+Products supply their user client, total request timeout, bounded response budget
 and parsed `TlsConfig`. Products still choose protected TLS input paths and
 business DTOs; Host reads those files through Foundation filesystem handles and
 the 1 MiB TLS input ceiling. `TlsConfig` and the transport hide secrets in Debug.
 
 `SecureHttpClient::execute` accepts one of the three closed network policies and
-a finite request. `post_agent` selects PublicHttps for HTTPS, or the loopback-only
+a finite request. `post_client` selects PublicHttps for HTTPS, or the loopback-only
 LoopbackDevelopment policy for debug builds. Release builds reject that HTTP
-policy, including localhost. PrivateDevice is not selected by Agent delivery.
+policy, including localhost. PrivateDevice is not selected by Client delivery.
 
 Execution owns:
 
@@ -49,7 +49,7 @@ Current execution rebuilds a pinned client per request; pooling and explicit
 validated proxy support are not provided by this implementation.
 
 Host Report/OTLP, create/poll/activate pairing and the Windows tray's public health
-probe all use this factory. `get_agent_blocking` adapts synchronous callers with
+probe all use this factory. `get_client_blocking` adapts synchronous callers with
 an owned scoped worker/runtime, including callers already inside Tokio. The
 worker is joined, not detached; it executes the same policy and bounded GET path.
 DNS queries no longer call OS `getaddrinfo` or Tokio's blocking resolver pool.

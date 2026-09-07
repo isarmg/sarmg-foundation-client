@@ -1563,8 +1563,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sarmg-agent-error"
-version = "0.6.0"
+name = "sarmg-client-error"
+version = "0.7.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1572,8 +1572,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "sarmg-agent-fs-safety"
-version = "0.6.0"
+name = "sarmg-client-fs-safety"
+version = "0.7.0"
 dependencies = [
  "getrandom 0.4.3",
  "rustix",
@@ -1582,14 +1582,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "sarmg-agent-runtime"
-version = "0.6.0"
+name = "sarmg-client-runtime"
+version = "0.7.0"
 dependencies = [
  "async-trait",
  "getrandom 0.4.3",
  "rand 0.9.5",
- "sarmg-agent-fs-safety",
- "sarmg-agent-secret",
+ "sarmg-client-fs-safety",
+ "sarmg-client-secret",
  "serde",
  "serde_json",
  "sha2",
@@ -1599,28 +1599,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "sarmg-agent-secret"
-version = "0.6.0"
+name = "sarmg-client-secret"
+version = "0.7.0"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
-name = "sarmg-agent-secret-envelope"
-version = "0.6.0"
+name = "sarmg-client-secret-envelope"
+version = "0.7.0"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
  "hkdf",
- "sarmg-agent-secret",
+ "sarmg-client-secret",
  "sha2",
  "thiserror 2.0.20",
  "zeroize",
 ]
 
 [[package]]
-name = "sarmg-agent-secure-http"
-version = "0.6.0"
+name = "sarmg-client-secure-http"
+version = "0.7.0"
 dependencies = [
  "hickory-resolver",
  "ipnet",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-mobile-ffi"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "jni 0.21.1",
 ]
