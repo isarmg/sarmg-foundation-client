@@ -22,6 +22,16 @@ const DIRECTORY_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
+// Ancestors require search permission, not directory-listing permission. Android
+// sandboxes commonly allow only search on shared ancestors such as /data.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+const WALK_FLAGS: OFlags = OFlags::PATH
+    .union(OFlags::DIRECTORY)
+    .union(OFlags::NOFOLLOW)
+    .union(OFlags::CLOEXEC);
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+const WALK_FLAGS: OFlags = DIRECTORY_FLAGS;
+
 pub(super) fn open_configuration_directory(path: &Path) -> Result<ConfigurationDirectory, Error> {
     let directory = open_directory(path)?;
     let stat = fstat(&directory).map_err(io::Error::from)?;
@@ -145,16 +155,20 @@ pub(super) fn open_directory(path: &Path) -> Result<File, Error> {
     if !path.is_absolute() {
         return Err(Error::AbsolutePathRequired(path.to_path_buf()));
     }
-    let mut fd = open("/", DIRECTORY_FLAGS, Mode::empty()).map_err(io::Error::from)?;
+    let mut fd = open("/", WALK_FLAGS, Mode::empty()).map_err(io::Error::from)?;
     for component in path.components() {
         match component {
             Component::RootDir => (),
             Component::Normal(name) => {
-                fd = openat(&fd, name, DIRECTORY_FLAGS, Mode::empty()).map_err(io::Error::from)?;
+                fd = openat(&fd, name, WALK_FLAGS, Mode::empty()).map_err(io::Error::from)?;
             }
             _ => return Err(Error::UnsafeRelativePath(path.to_path_buf())),
         }
     }
+    // Return a readable handle anchored to the verified final directory, so
+    // fsync and inventory retain their original behavior. No pathname rewalk.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let fd = openat(&fd, ".", DIRECTORY_FLAGS, Mode::empty()).map_err(io::Error::from)?;
     Ok(File::from(fd))
 }
 
@@ -1168,6 +1182,55 @@ mod tests {
                 .unwrap(),
             b"rotated"
         );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn private_directory_under_search_only_ancestor() {
+        use std::os::unix::process::CommandExt;
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--ignored",
+            "--exact",
+            "unix::tests::search_only_ancestor_subprocess",
+        ]);
+        if geteuid().as_raw() == 0 {
+            command.uid(65534).gid(65534);
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[ignore = "invoked without root directory-read privileges by the parent test"]
+    fn search_only_ancestor_subprocess() {
+        assert_ne!(geteuid().as_raw(), 0);
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let ancestor = root.join("search-only");
+        fs::create_dir(&ancestor).unwrap();
+        let path = ancestor.join("private");
+        PrivateDirectory::create(&path).unwrap();
+        symlink(&path, ancestor.join("alias")).unwrap();
+        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o111)).unwrap();
+        assert!(fs::read_dir(&ancestor).is_err());
+        let result = PrivateDirectory::open_existing(&path).and_then(|directory| {
+            let name = EntryName::new("retained")?;
+            AtomicFile::replace(&directory, &name.as_relative(), b"private")?;
+            assert_eq!(directory.read_private_bounded(&name, 7)?, b"private");
+            directory.sync()
+        });
+        let alias_result = PrivateDirectory::open_existing(ancestor.join("alias"));
+        // Restore fixture permissions even on failure so TempDir can clean it up.
+        fs::set_permissions(&ancestor, fs::Permissions::from_mode(0o700)).unwrap();
+        result.unwrap();
+        assert!(alias_result.is_err());
     }
 
     #[test]
