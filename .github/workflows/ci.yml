@@ -19,6 +19,8 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install 1.98.0 --profile minimal --component clippy
+      - name: Use the canonical OS temporary directory in no-follow path tests
+        run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
       - run: cargo test --locked -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets
       - run: cargo clippy --locked -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets -- -D warnings
       - run: bash scripts/test-apple-sandbox.sh
