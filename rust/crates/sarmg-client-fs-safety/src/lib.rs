@@ -578,6 +578,13 @@ pub fn sync_file_and_parent(path: &Path) -> Result<(), Error> {
         )
     }
 }
+/// Validate an absolute directory using no-follow native handles, without
+/// requiring separate metadata or listing access to every ancestor.
+#[cfg(unix)]
+pub fn validate_directory_path(path: &Path) -> Result<(), Error> {
+    unix::open_directory(path).map(|_| ())
+}
+
 pub fn sync_directory(path: &Path) -> Result<(), Error> {
     #[cfg(unix)]
     unix::open_directory(path)?.sync_all()?;

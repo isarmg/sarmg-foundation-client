@@ -132,6 +132,14 @@ impl FfiError {
             public_message: "operation failed",
         }
     }
+    /// A reviewed static product diagnostic. Never pass paths, credentials,
+    /// panic payloads, or a dynamically formatted internal error to the ABI.
+    pub const fn internal_with_message(public_message: &'static str) -> Self {
+        Self {
+            status: SARMG_FFI_INTERNAL_ERROR,
+            public_message,
+        }
+    }
     pub const fn resource_exhausted() -> Self {
         Self {
             status: SARMG_FFI_RESOURCE_EXHAUSTED,

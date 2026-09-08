@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-error"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1573,9 +1573,10 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-fs-safety"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "getrandom 0.4.3",
+ "libc",
  "rustix",
  "tempfile",
  "thiserror 2.0.20",
@@ -1583,7 +1584,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-runtime"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "async-trait",
  "getrandom 0.4.3",
@@ -1600,14 +1601,14 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-secret"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "sarmg-client-secret-envelope"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
@@ -1620,7 +1621,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-secure-http"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "hickory-resolver",
  "ipnet",
@@ -1632,7 +1633,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-mobile-ffi"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "jni 0.21.1",
 ]

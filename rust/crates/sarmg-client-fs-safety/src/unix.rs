@@ -29,7 +29,7 @@ const WALK_FLAGS: OFlags = OFlags::PATH
     .union(OFlags::DIRECTORY)
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
 const WALK_FLAGS: OFlags = DIRECTORY_FLAGS;
 
 pub(super) fn open_configuration_directory(path: &Path) -> Result<ConfigurationDirectory, Error> {
@@ -151,6 +151,27 @@ fn validate_publication(
     }
 }
 
+// Darwin can reject all symlinks in one kernel lookup. Opening each ancestor
+// separately asks an iOS sandbox for permissions outside its app container.
+#[cfg(target_vendor = "apple")]
+pub(super) fn open_directory(path: &Path) -> Result<File, Error> {
+    use std::os::unix::fs::OpenOptionsExt;
+    if !path.is_absolute() {
+        return Err(Error::AbsolutePathRequired(path.to_path_buf()));
+    }
+    if path
+        .components()
+        .any(|c| !matches!(c, Component::RootDir | Component::Normal(_)))
+    {
+        return Err(Error::UnsafeRelativePath(path.to_path_buf()));
+    }
+    Ok(std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW_ANY | libc::O_CLOEXEC)
+        .open(path)?)
+}
+
+#[cfg(not(target_vendor = "apple"))]
 pub(super) fn open_directory(path: &Path) -> Result<File, Error> {
     if !path.is_absolute() {
         return Err(Error::AbsolutePathRequired(path.to_path_buf()));

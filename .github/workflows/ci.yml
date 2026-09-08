@@ -9,6 +9,19 @@ on:
 permissions: {}
 
 jobs:
+  apple-storage:
+    permissions:
+      contents: read
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.98.0 --profile minimal --component clippy
+      - run: cargo test --locked -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets
+      - run: cargo clippy --locked -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets -- -D warnings
+      - run: bash scripts/test-apple-sandbox.sh
   windows-storage:
     permissions:
       contents: read
