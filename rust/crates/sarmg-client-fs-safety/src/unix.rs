@@ -5,9 +5,7 @@ use super::{
 };
 use rustix::{
     fd::{AsFd, OwnedFd},
-    fs::{
-        AtFlags, FileType, Mode, OFlags, fstat, mkdirat, open, openat, renameat, statat, unlinkat,
-    },
+    fs::{AtFlags, FileType, Mode, OFlags, fstat, mkdirat, openat, renameat, statat, unlinkat},
     process::geteuid,
 };
 use std::{
@@ -16,6 +14,9 @@ use std::{
     io::{self, Read, Write},
     path::{Component, Path},
 };
+
+#[cfg(not(target_vendor = "apple"))]
+use rustix::fs::open;
 
 const DIRECTORY_FLAGS: OFlags = OFlags::RDONLY
     .union(OFlags::DIRECTORY)
@@ -744,6 +745,17 @@ pub(super) fn bounded_inventory(
 
 #[cfg(test)]
 mod tests {
+    fn make_fifo(path: &std::path::Path) {
+        assert!(
+            std::process::Command::new("mkfifo")
+                .args(["-m", "600"])
+                .arg(path)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+
     use super::*;
 
     #[test]
@@ -793,12 +805,7 @@ mod tests {
             );
             rustix::fs::chown(&file, Some(geteuid()), Some(rustix::process::getegid())).unwrap();
         }
-        rustix::fs::mkfifoat(
-            &directory.directory,
-            "fifo-input",
-            Mode::from_raw_mode(0o600),
-        )
-        .unwrap();
+        make_fifo(&path.join("fifo-input"));
         assert!(
             directory
                 .read_input_bounded(&EntryName::new("fifo-input").unwrap(), 6, Confidential)
@@ -875,7 +882,7 @@ mod tests {
         fs::write(&victim, b"untouched").unwrap();
         symlink(&victim, path.join("symlink")).unwrap();
         fs::hard_link(&victim, path.join("hardlink")).unwrap();
-        rustix::fs::mkfifoat(&directory.directory, "fifo", Mode::from_raw_mode(0o600)).unwrap();
+        make_fifo(&path.join("fifo"));
         fs::write(path.join("public"), b"untouched").unwrap();
         fs::set_permissions(path.join("public"), fs::Permissions::from_mode(0o644)).unwrap();
         for name in ["symlink", "hardlink", "fifo", "public"] {
@@ -1010,7 +1017,7 @@ mod tests {
             Err(Error::MultipleLinks(_))
         ));
         fs::remove_file(directory.path().join("alias")).unwrap();
-        rustix::fs::mkfifoat(&directory.directory, "fifo", Mode::from_raw_mode(0o600)).unwrap();
+        make_fifo(&directory.path().join("fifo"));
         assert!(
             directory
                 .read_private_bounded(&EntryName::new("fifo").unwrap(), 6)
@@ -1052,7 +1059,7 @@ mod tests {
             fs::Permissions::from_mode(0o644),
         )
         .unwrap();
-        rustix::fs::mkfifoat(&directory.directory, "fifo", Mode::from_raw_mode(0o600)).unwrap();
+        make_fifo(&directory.path().join("fifo"));
         for name in ["symlink", "hardlink", "public", "fifo"] {
             assert!(
                 AdvisoryLock::acquire_waiting(&directory, &EntryName::new(name).unwrap()).is_err(),
