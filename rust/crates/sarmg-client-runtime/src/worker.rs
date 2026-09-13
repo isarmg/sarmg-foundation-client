@@ -116,6 +116,7 @@ impl<D: ClientDeliveryDriver> DeliveryWorker<D> {
         let mut queue_failures = QueueFailureStreak::default();
         let mut pending_recovery = None;
         let mut pending_batch = None;
+        let mut initial_recovery_completed = false;
 
         loop {
             if *shutdown.borrow() || shutdown.has_changed().is_err() || notifications.0.is_closed()
@@ -126,7 +127,8 @@ impl<D: ClientDeliveryDriver> DeliveryWorker<D> {
             if pending_recovery.is_none() && now >= recovery_at {
                 pending_recovery = Some(driver.recover());
             }
-            if !authorization_blocked
+            if initial_recovery_completed
+                && !authorization_blocked
                 && pending_batch.is_none()
                 && retry_at.is_some_and(|at| now >= at)
             {
@@ -147,6 +149,7 @@ impl<D: ClientDeliveryDriver> DeliveryWorker<D> {
                 _ = crate::wait_for_shutdown(&mut shutdown) => return Ok(()),
                 result = async { pending_recovery.as_mut().expect("recovery branch requires a future").await }, if pending_recovery.is_some() => {
                     pending_recovery = None;
+                    initial_recovery_completed = true;
                     match result.and_then(|probe| driver.apply_recovery(probe)) {
                         Ok(update) => {
                             let poll_after = match update {

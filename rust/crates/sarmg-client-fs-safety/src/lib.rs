@@ -78,7 +78,7 @@ impl EntryName {
             return Err(Error::UnsafeRelativePath(path.0));
         }
         #[cfg(windows)]
-        validate_windows_entry_name(path.as_os_str())?;
+        validate_windows_entry_name(path.0.as_os_str())?;
         Ok(Self(path.0))
     }
     pub fn as_path(&self) -> &Path {
