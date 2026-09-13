@@ -47,4 +47,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
+            exit 1
+          fi
           gh release create "$RELEASE_TAG" "$RUNNER_TEMP/client-release/"* --verify-tag --title "Sarmg Foundation Client ${RELEASE_TAG}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
