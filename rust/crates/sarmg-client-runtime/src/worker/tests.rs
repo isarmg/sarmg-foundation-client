@@ -160,6 +160,8 @@ async fn wake_edges_do_not_collapse_backoff_or_cancel_a_pending_send() {
             .run(notifications, shutdown),
     );
     settle().await;
+    tokio::time::advance(Duration::from_millis(1)).await;
+    settle().await;
     assert_eq!(state.sends.load(Ordering::SeqCst), 1);
     tokio::time::advance(Duration::from_millis(500)).await;
     for _ in 0..10 {
@@ -234,6 +236,7 @@ async fn shutdown_and_lost_controllers_cancel_both_owned_futures() {
                 .run(notifications, shutdown),
         );
         settle().await;
+        tokio::time::sleep(Duration::from_millis(5)).await;
         match mode {
             0 => {
                 stop.send(true).unwrap();
