@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 const MAGIC: &[u8; 4] = b"SGEV";
 const NONCE_BYTES: usize = 12;
 const MAX_PLAINTEXT_BYTES: usize = 1024 * 1024;
+pub const MAX_BINDING_BYTES: usize = 4096;
 
 pub trait EnvelopeDomain {
     const DOMAIN: &'static [u8];
@@ -25,6 +26,9 @@ pub fn seal<D: EnvelopeDomain>(
 ) -> Result<Vec<u8>, Error> {
     if D::DOMAIN.is_empty() || binding.is_empty() {
         return Err(Error::MissingDomainBinding);
+    }
+    if binding.len() > MAX_BINDING_BYTES {
+        return Err(Error::BindingTooLarge);
     }
     if plaintext.expose().len() > MAX_PLAINTEXT_BYTES {
         return Err(Error::PlaintextTooLarge);
@@ -58,6 +62,9 @@ pub fn open<D: EnvelopeDomain>(
 ) -> Result<SecretBytes, Error> {
     if D::DOMAIN.is_empty() || binding.is_empty() {
         return Err(Error::MissingDomainBinding);
+    }
+    if binding.len() > MAX_BINDING_BYTES {
+        return Err(Error::BindingTooLarge);
     }
     if envelope.len() < 6 + NONCE_BYTES + 16
         || envelope.len() > 6 + NONCE_BYTES + 16 + MAX_PLAINTEXT_BYTES
@@ -110,6 +117,8 @@ pub enum Error {
     MissingDomainBinding,
     #[error("plaintext exceeds the envelope budget")]
     PlaintextTooLarge,
+    #[error("object binding exceeds the envelope budget")]
+    BindingTooLarge,
     #[error("malformed envelope")]
     Malformed,
     #[error("envelope revision does not match the current domain revision")]
@@ -149,5 +158,20 @@ mod tests {
             open::<Test>(&key, b"object-1", &corrupt).unwrap_err(),
             Error::Authentication
         );
+    }
+
+    #[test]
+    fn binding_has_a_hard_allocation_limit() {
+        let key = SecretKey::new([9; 32]);
+        let plain = SecretBytes::new(b"secret".to_vec());
+        let oversized = vec![b'x'; MAX_BINDING_BYTES + 1];
+        assert_eq!(
+            seal::<Test>(&key, &oversized, &plain),
+            Err(Error::BindingTooLarge)
+        );
+        assert!(matches!(
+            open::<Test>(&key, &oversized, &[0; 34]),
+            Err(Error::BindingTooLarge)
+        ));
     }
 }

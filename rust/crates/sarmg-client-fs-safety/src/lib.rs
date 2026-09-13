@@ -77,6 +77,8 @@ impl EntryName {
         if path.as_path().components().count() != 1 {
             return Err(Error::UnsafeRelativePath(path.0));
         }
+        #[cfg(windows)]
+        validate_windows_entry_name(path.as_os_str())?;
         Ok(Self(path.0))
     }
     pub fn as_path(&self) -> &Path {
@@ -88,6 +90,36 @@ impl EntryName {
     pub fn as_relative(&self) -> RelativePath {
         RelativePath(self.0.clone())
     }
+}
+
+#[cfg(windows)]
+fn validate_windows_entry_name(name: &OsStr) -> Result<(), Error> {
+    let Some(name) = name.to_str() else {
+        return Err(Error::UnsafeRelativePath(PathBuf::from(name)));
+    };
+    if name.ends_with([' ', '.'])
+        || name.chars().any(|character| {
+            character <= '\u{1f}'
+                || matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                )
+        })
+    {
+        return Err(Error::UnsafeRelativePath(PathBuf::from(name)));
+    }
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    let reserved = matches!(
+        stem.as_str(),
+        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+    ) || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+        && stem[3..]
+            .parse::<u8>()
+            .is_ok_and(|number| (1..=9).contains(&number)));
+    if reserved {
+        return Err(Error::UnsafeRelativePath(PathBuf::from(name)));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -665,6 +697,21 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    #[test]
+    fn windows_entry_names_reject_ads_and_win32_aliases() {
+        for name in [
+            "config:secret",
+            "CON",
+            "nul.txt",
+            "COM1.log",
+            "trailing.",
+            "trailing ",
+        ] {
+            assert!(EntryName::new(name).is_err(), "accepted {name}");
+        }
+        assert!(EntryName::new("configuration.json").is_ok());
+    }
     #[cfg(windows)]
     #[test]
     fn windows_directory_handles_publish_flush_lock_and_reopen() {

@@ -269,7 +269,11 @@ async fn preclosed_controls_and_invalid_poll_intervals_never_start_a_delivery() 
             .unwrap();
         assert_eq!(state.sends.load(Ordering::SeqCst), 0);
     }
-    for poll_after in [Duration::ZERO, Duration::from_secs(3601)] {
+    for poll_after in [
+        Duration::ZERO,
+        Duration::from_millis(99),
+        Duration::from_secs(3601),
+    ] {
         let (state, driver) = fixture(vec![SendAction::Drain], false);
         state
             .recovery

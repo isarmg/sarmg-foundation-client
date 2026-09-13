@@ -10,8 +10,11 @@ pub const MAX_TLS_INPUT_BYTES: usize = 1024 * 1024;
 
 pub use reqwest::{Certificate, Identity, StatusCode, header};
 use reqwest::{Client, Request, Response, redirect::Policy};
-use std::sync::Arc;
-use std::{net::IpAddr, time::Duration};
+use std::sync::{Arc, Mutex};
+use std::{
+    net::{IpAddr, SocketAddr},
+    time::{Duration, Instant},
+};
 use url::Host;
 pub use url::Url;
 
@@ -41,9 +44,20 @@ impl Default for ResponseBudget {
 /// Parsed TLS material, never formatted or serialized. Products select protected
 /// input files; the factory owns backend, trust and verification configuration.
 #[derive(Clone, Default)]
+pub enum TrustMode {
+    /// Trust only the platform/native or bundled Web PKI roots.
+    #[default]
+    System,
+    /// Add product-provided roots to the normal platform trust anchors.
+    SystemPlusCustom(Vec<Certificate>),
+    /// Trust only the explicitly supplied product roots.
+    CustomOnly(Vec<Certificate>),
+}
+
+#[derive(Clone, Default)]
 pub struct TlsConfig {
     pub identity: Option<Identity>,
-    pub roots: Vec<Certificate>,
+    pub trust: TrustMode,
 }
 impl std::fmt::Debug for TlsConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -65,6 +79,14 @@ struct Configuration {
     total_timeout: Duration,
     tls: TlsConfig,
     user_agent: String,
+    cached_client: Mutex<Option<CachedClient>>,
+}
+struct CachedClient {
+    host: String,
+    port: u16,
+    addresses: Vec<SocketAddr>,
+    expires_at: Instant,
+    client: Client,
 }
 impl std::fmt::Debug for SecureHttpClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -93,6 +115,7 @@ impl SecureHttpClient {
                 total_timeout,
                 tls,
                 user_agent,
+                cached_client: Mutex::new(None),
             }),
         };
         // Read-only construction validation; no DNS, request or state mutation.
@@ -123,10 +146,52 @@ impl SecureHttpClient {
         if let Some(identity) = &settings.tls.identity {
             builder = builder.identity(identity.clone());
         }
-        for certificate in &settings.tls.roots {
-            builder = builder.add_root_certificate(certificate.clone());
-        }
+        builder = match &settings.tls.trust {
+            TrustMode::System => builder,
+            TrustMode::SystemPlusCustom(certificates) => {
+                builder.tls_certs_merge(certificates.clone())
+            }
+            TrustMode::CustomOnly(certificates) => builder.tls_certs_only(certificates.clone()),
+        };
         builder
+    }
+
+    fn client_for(&self, host: &str, port: u16, addresses: &[SocketAddr]) -> Result<Client, Error> {
+        let now = Instant::now();
+        let mut normalized = addresses.to_vec();
+        normalized.sort_unstable();
+        {
+            let cache = self
+                .configuration
+                .cached_client
+                .lock()
+                .map_err(|_| Error::Runtime)?;
+            if let Some(cached) = cache.as_ref()
+                && cached.host == host
+                && cached.port == port
+                && cached.addresses == normalized
+                && cached.expires_at > now
+            {
+                return Ok(cached.client.clone());
+            }
+        }
+        let client = self
+            .client_builder()
+            .resolve_to_addrs(host, &normalized)
+            .build()?;
+        let cached = CachedClient {
+            host: host.to_owned(),
+            port,
+            addresses: normalized,
+            expires_at: now + Duration::from_secs(60),
+            client: client.clone(),
+        };
+        *self
+            .configuration
+            .cached_client
+            .lock()
+            .map_err(|_| Error::Runtime)? = Some(cached);
+        Ok(client)
     }
 
     /// The only execution entry: resolution, connection, headers and complete
@@ -172,10 +237,7 @@ impl SecureHttpClient {
             for address in &addresses {
                 validate_address(policy, address.ip())?;
             }
-            let client = self
-                .client_builder()
-                .resolve_to_addrs(&host, &addresses)
-                .build()?;
+            let client = self.client_for(&host, port, &addresses)?;
             let response = client.execute(request).await?;
             let status = response.status();
             // Validate/count before cloning headers.
@@ -348,7 +410,8 @@ fn validate_address(policy: NetworkPolicy, address: IpAddr) -> Result<(), Error>
         return Err(Error::ForbiddenAddress(address));
     }
     match policy {
-        NetworkPolicy::PublicHttps => Ok(()),
+        NetworkPolicy::PublicHttps if is_public_address(address) => Ok(()),
+        NetworkPolicy::PublicHttps => Err(Error::ForbiddenAddress(address)),
         NetworkPolicy::LoopbackDevelopment if address.is_loopback() => Ok(()),
         NetworkPolicy::LoopbackDevelopment => Err(Error::ForbiddenAddress(address)),
         NetworkPolicy::PrivateDevice {
@@ -362,6 +425,36 @@ fn validate_address(policy: NetworkPolicy, address: IpAddr) -> Result<(), Error>
                 return Err(Error::ForbiddenAddress(address));
             }
             Ok(())
+        }
+    }
+}
+fn is_public_address(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => {
+            let [a, b, c, _] = v.octets();
+            !(a == 0
+                || a == 10
+                || a == 127
+                || (a == 100 && (64..=127).contains(&b))
+                || (a == 169 && b == 254)
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 192 && b == 0 && c == 2)
+                || (a == 192 && b == 88 && c == 99)
+                || (a == 192 && b == 168)
+                || (a == 198 && (b == 18 || b == 19))
+                || (a == 198 && b == 51 && c == 100)
+                || (a == 203 && b == 0 && c == 113)
+                || a >= 224)
+        }
+        IpAddr::V6(v) => {
+            let segments = v.segments();
+            !(v.is_loopback()
+                || v.is_unicast_link_local()
+                || (segments[0] & 0xfe00) == 0xfc00
+                || segments == [0x100, 0, 0, 0, 0, 0, 0, 0]
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || (segments[0] == 0x2001 && segments[1] == 0x0002))
         }
     }
 }
@@ -449,6 +542,31 @@ mod tests {
                 "169.254.169.254".parse().unwrap()
             )
             .is_err()
+        );
+        for address in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "100.64.0.1",
+            "169.254.1.1",
+            "172.16.0.1",
+            "192.168.0.1",
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "2001:db8::1",
+        ] {
+            assert!(matches!(
+                validate_address(NetworkPolicy::PublicHttps, address.parse().unwrap()),
+                Err(Error::ForbiddenAddress(_))
+            ));
+        }
+        assert!(validate_address(NetworkPolicy::PublicHttps, "1.1.1.1".parse().unwrap()).is_ok());
+        assert!(
+            validate_address(
+                NetworkPolicy::PublicHttps,
+                "2606:4700:4700::1111".parse().unwrap()
+            )
+            .is_ok()
         );
     }
 }

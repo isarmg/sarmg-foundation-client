@@ -289,8 +289,13 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
     findings = []
     count = 0
     ignored = {".git", "node_modules", "target", "dist", "release", "build", ".gradle", "__pycache__"}
+    cargo_manifests: set[Path] = set()
     for root in source_roots(product_root, manifest):
         for directory, directories, files in os.walk(root, followlinks=False):
+            for name in directories:
+                path = Path(directory) / name
+                if path.is_symlink():
+                    raise ConformanceError(f"{path}: source symlinks are forbidden")
             directories[:] = sorted(name for name in directories if name not in ignored)
             for name in sorted(files):
                 path = Path(directory) / name
@@ -312,18 +317,28 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                                 findings.append(f"[client-boundary] {path}: Server Web dependency {dependency}")
                 if name != "Cargo.toml":
                     continue
-                for dependency, requirement in _walk_dependencies(_toml(path)):
-                    if isinstance(requirement, dict) and requirement.get("workspace") is True:
-                        requirement = workspace.get(dependency, {})
-                    package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-                    if "https-delivery" in capabilities and package == "reqwest":
-                        findings.append(f"[secure-http-ownership] {path}: direct reqwest dependency bypasses the shared factory")
-                    if package.startswith("sarmg-") and not (package.startswith("sarmg-client-") or package == "sarmg-mobile-ffi"):
-                        findings.append(f"[client-boundary] {path}: server package {package}")
-                    if isinstance(requirement, dict):
-                        source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
-                        if "sarmg-foundation-server" in source:
-                            findings.append(f"[client-boundary] {path}: server source dependency")
+                cargo_manifests.add(path.resolve())
+    # Dependency ownership follows the actual product tree, not its advisory
+    # source_roots list. In particular the workspace/package root manifest
+    # cannot be excluded from this check.
+    for directory, directories, files in os.walk(product_root, followlinks=False):
+        directories[:] = sorted(name for name in directories if name not in ignored and not (Path(directory) / name).is_symlink())
+        for name in files:
+            if name == "Cargo.toml":
+                cargo_manifests.add((Path(directory) / name).resolve())
+    for path in sorted(cargo_manifests):
+        for dependency, requirement in _walk_dependencies(_toml(path)):
+            if isinstance(requirement, dict) and requirement.get("workspace") is True:
+                requirement = workspace.get(dependency, {})
+            package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
+            if "https-delivery" in capabilities and package == "reqwest":
+                findings.append(f"[secure-http-ownership] {path}: direct reqwest dependency bypasses the shared factory")
+            if package.startswith("sarmg-") and not (package.startswith("sarmg-client-") or package == "sarmg-mobile-ffi"):
+                findings.append(f"[client-boundary] {path}: server package {package}")
+            if isinstance(requirement, dict):
+                source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
+                if "sarmg-foundation-server" in source:
+                    findings.append(f"[client-boundary] {path}: server source dependency")
     if findings:
         raise ConformanceError("source verification failed:\n" + "\n".join(findings))
     return {"product": manifest["product_id"], "source_files": count, "status": "verified"}

@@ -40,6 +40,29 @@ class ClientPolicyTests(unittest.TestCase):
             cargo.write_text('[dependencies]\nsarmg-client-secure-http="=0.5.0"\n')
             verify_source(product, ROOT)
 
+    def test_dependency_checks_cannot_exclude_the_root_manifest(self) -> None:
+        manifest = (VALID_MANIFEST.replace('source_roots = ["."]', 'source_roots = ["src"]')
+            + '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n')
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            (product / "src").mkdir()
+            (product / "src" / "lib.rs").write_text("pub fn fixture() {}")
+            (product / "sarmg-client.toml").write_text(manifest)
+            (product / "Cargo.toml").write_text('[dependencies]\nreqwest="0.13"\n')
+            with self.assertRaisesRegex(ConformanceError, "secure-http-ownership"):
+                verify_source(product, ROOT)
+
+    def test_source_root_symlink_directories_are_rejected(self) -> None:
+        component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            outside = product / "outside"
+            outside.mkdir()
+            (product / "sarmg-client.toml").write_text(VALID_MANIFEST + component)
+            (product / "linked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(ConformanceError, "source symlinks"):
+                verify_source(product, ROOT)
+
     def test_manifest_schema_accepts_the_current_version(self) -> None:
         schema = json.loads((ROOT / "schemas/sarmg-client.schema.json").read_text())
         pattern = schema["properties"]["foundation"]["properties"]["version"]["pattern"]

@@ -10,6 +10,7 @@ use tokio::{
 };
 
 pub const MAX_QUEUE_FAILURES: u32 = 100;
+pub const MIN_RECOVERY_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 pub struct QueueFailureStreak(u32);
@@ -143,7 +144,6 @@ impl<D: ClientDeliveryDriver> DeliveryWorker<D> {
             };
 
             tokio::select! {
-                biased;
                 _ = crate::wait_for_shutdown(&mut shutdown) => return Ok(()),
                 result = async { pending_recovery.as_mut().expect("recovery branch requires a future").await }, if pending_recovery.is_some() => {
                     pending_recovery = None;
@@ -152,7 +152,7 @@ impl<D: ClientDeliveryDriver> DeliveryWorker<D> {
                             let poll_after = match update {
                                 RecoveryUpdate::Unchanged { poll_after } | RecoveryUpdate::Renewed { poll_after } => poll_after,
                             };
-                            if poll_after.is_zero() || poll_after > Duration::from_secs(3600) {
+                            if poll_after < MIN_RECOVERY_POLL || poll_after > Duration::from_secs(3600) {
                                 return Err(Error::InvalidLimits.into());
                             }
                             recovery_retry.reset();
