@@ -10,7 +10,7 @@ formal_targets = [
 http_adapters = []
 web_profiles = []
 required_capabilities = ["private-state", "bounded-spool", "https-delivery", "doctor"]
-optional_capabilities = ["secret-envelope", "local-web-management"]
+optional_capabilities = ["secret-envelope", "local-web-management", "authenticated-local-status", "desktop-cli-lifecycle"]
 
 [policy.client_limits]
 max_record_bytes = 1048576

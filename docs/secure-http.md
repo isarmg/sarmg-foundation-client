@@ -45,8 +45,11 @@ Execution owns:
 The returned `BoundedResponse` is already fully read and contains status, headers
 and a bounded body. The factory does not classify business ACKs, retry, mutate
 credentials or enqueue reports. There is no public raw Client/Response bypass.
-Current execution rebuilds a pinned client per request; pooling and explicit
-validated proxy support are not provided by this implementation.
+Every execution performs DNS resolution and policy validation again. After that
+validation, the implementation may reuse a pooled pinned client for at most 60
+seconds only when host, port and the complete normalized resolved-address set are
+unchanged; a different destination, changed DNS result or expiry rebuilds it.
+Explicit validated proxy support is not provided.
 
 Host Report/OTLP, create/poll/activate pairing and the Windows tray's public health
 probe all use this factory. `get_client_blocking` adapts synchronous callers with

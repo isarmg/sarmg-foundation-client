@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+  "rust/crates/sarmg-client-cli",
   "rust/crates/sarmg-client-runtime",
   "rust/crates/sarmg-mobile-ffi",
   "rust/crates/sarmg-client-fs-safety",
@@ -11,7 +12,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.8.1"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.98"
 authors = ["sarmg <isarmg@163.com>"]
@@ -24,6 +25,7 @@ aes-gcm = "0.10"
 hkdf = "0.12"
 async-trait = "0.1"
 getrandom = "0.4"
+libc = "0.2"
 hickory-resolver = { version = "=0.26.2", default-features = false, features = ["tokio", "system-config"] }
 ipnet = "2"
 rand = "0.9"
@@ -36,6 +38,8 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal", "sync", "time"] }
 url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_Registry", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 zeroize = "1.8"
 
 [workspace.lints.rust]

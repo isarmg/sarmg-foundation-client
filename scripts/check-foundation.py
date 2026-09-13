@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from client_policy import ConformanceError, _toml, _walk_dependencies, load_profiles, verify_source
 
 PACKAGES = {
-    "sarmg-client-runtime", "sarmg-mobile-ffi", "sarmg-client-fs-safety",
+    "sarmg-client-cli", "sarmg-client-runtime", "sarmg-mobile-ffi", "sarmg-client-fs-safety",
     "sarmg-client-secret", "sarmg-client-secret-envelope", "sarmg-client-error", "sarmg-client-secure-http",
 }
 

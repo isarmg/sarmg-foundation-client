@@ -8,6 +8,7 @@ use tokio::sync::watch;
 
 mod identity;
 pub use identity::ClientIdentity;
+pub mod local_status;
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(try_from = "String", into = "String")]

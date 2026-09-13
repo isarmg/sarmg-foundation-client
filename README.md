@@ -1,6 +1,14 @@
 # Sarmg Foundation Client
 
-当前源码版本为 `0.8.1`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
+当前源码版本为 `0.9.0`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
+
+桌面 Profile 可由 `sarmg-client-runtime::local_status` 完整提供本地只读状态通道。产品只提交绑定代次、有效配置
+revision 和业务观察字段；Unix 对端身份校验、Windows 受保护命名管道、消息上限及生命周期均由 Foundation
+实现，产品不得再保留等价副本。
+
+`sarmg-client-cli` 完整提供公共参数合同、脱敏输出、受保护输入和 Linux/Windows/macOS 服务生命周期。产品
+声明自己的选项、服务名、可执行文件、配置路径和日志路径，并保留业务命令及业务状态机；Foundation 不按
+产品名分支。
 历史 `0.6.0` 的限制见 [历史发布记录](docs/releases/0.6.0.md)，本次命名变更不改写历史标签或制品。
 
 `sarmg-foundation-client` 是独立的 Client/客户端规范、基础实现和验收工具仓库。

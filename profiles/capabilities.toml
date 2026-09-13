@@ -16,6 +16,14 @@ state = "current"
 owner = "foundation"
 state = "current"
 
+[capabilities.authenticated-local-status]
+owner = "foundation"
+state = "current"
+
+[capabilities.desktop-cli-lifecycle]
+owner = "foundation"
+state = "current"
+
 [capabilities.mobile-queue]
 owner = "foundation"
 state = "current"
