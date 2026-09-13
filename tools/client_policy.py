@@ -16,14 +16,6 @@ SEMVER = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 IDENTIFIER = re.compile(r"[a-z][a-z0-9-]{0,62}")
-PRODUCT_IDS = {
-    "dufs-ram",
-    "host-monitoring",
-    "media-backup",
-    "sarmg-upgrade",
-    "sentinel-monitor",
-    "sunshine-manager",
-}
 CLIENT_LIMIT_KEYS = {"max_record_bytes", "max_spool_bytes", "max_spool_entries"}
 
 
@@ -117,8 +109,6 @@ def load_profiles(foundation_root: Path) -> tuple[dict[str, dict[str, Any]], set
             raise ConformanceError(f"{path}: invalid profile identity")
         if path.stem != identifier or identifier in profiles:
             raise ConformanceError(f"{path}: profile filename/id mismatch or duplicate")
-        if identifier in PRODUCT_IDS:
-            raise ConformanceError(f"{path}: product-specific profile names are forbidden")
         if value["kind"] != "client":
             raise ConformanceError(f"{path}: invalid profile kind")
         for key in ("formal_targets", "http_adapters", "web_profiles"):

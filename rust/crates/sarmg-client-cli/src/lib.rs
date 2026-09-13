@@ -214,6 +214,60 @@ pub fn absolute(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Default repeated Setup choices to the service's current intent. A missing
+/// registration is a first installation and therefore defaults to enabled and
+/// running; an existing registration is never silently re-enabled or started.
+pub fn setup_service_intent(status: &Value) -> (bool, bool) {
+    if !status["installed"].as_bool().unwrap_or(false) {
+        return (true, true);
+    }
+    let enabled = matches!(
+        status["startup"].as_str(),
+        Some("automatic" | "enabled" | "enabled-runtime")
+    );
+    let running = status["state"] == "running";
+    (enabled, running)
+}
+
+/// Edit a product-owned JSON configuration in the user's terminal editor.
+/// The caller remains responsible for schema validation and a revision-checked
+/// atomic commit, so this helper cannot bypass product concurrency controls.
+pub fn edit_json(current: &Value) -> Result<Value> {
+    if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Err(fail(2, "interactive_terminal_required"));
+    }
+    let editor = std::env::var_os("VISUAL")
+        .or_else(|| std::env::var_os("EDITOR"))
+        .ok_or_else(|| fail(2, "editor_not_configured"))?;
+    let mut file = tempfile::Builder::new()
+        .prefix("sarmg-config-")
+        .suffix(".json")
+        .tempfile()
+        .map_err(storage_error)?;
+    serde_json::to_writer_pretty(file.as_file_mut(), current).map_err(storage_error)?;
+    file.as_file_mut().write_all(b"\n").map_err(storage_error)?;
+    file.as_file_mut().sync_all().map_err(storage_error)?;
+    let status = Command::new(editor)
+        .arg(file.path())
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .map_err(|error| fail(8, "editor_failed").with_detail(error))?;
+    if !status.success() {
+        return Err(fail(2, "editor_cancelled"));
+    }
+    let metadata = std::fs::symlink_metadata(file.path()).map_err(storage_error)?;
+    if !metadata.file_type().is_file() {
+        return Err(fail(8, "unsafe_or_corrupt_state"));
+    }
+    if metadata.len() > 1_048_576 {
+        return Err(fail(2, "edited_configuration_too_large"));
+    }
+    let bytes = std::fs::read(file.path()).map_err(storage_error)?;
+    serde_json::from_slice(&bytes).map_err(input_error)
+}
 pub fn revision(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -301,7 +355,7 @@ pub fn emit(product: &str, command: &str, format: &str, result: &Result<Value>) 
     {
         Ok(human_failure(product, error))
     } else if format == "human" {
-        serde_json::to_string_pretty(&value)
+        Ok(human_success(product, command, &value["result"]))
     } else {
         serde_json::to_string(&value)
     };
@@ -343,9 +397,46 @@ fn human_failure(product: &str, error: &Failure) -> String {
         message.push_str("\nReason: ");
         message.push_str(detail);
     }
+    if error.committed {
+        message.push_str("\nInstallation: committed; saved configuration, identity, and service state were preserved.");
+    }
     message.push_str("\nNext: ");
     message.push_str(&failure_next_step(product, error));
     message
+}
+
+fn human_success(product: &str, command: &str, result: &Value) -> String {
+    let mut lines = vec![format!("{product} {command}: completed")];
+    render_human_fields("", result, &mut lines, 0);
+    lines.truncate(17);
+    lines.join("\n")
+}
+
+fn render_human_fields(prefix: &str, value: &Value, lines: &mut Vec<String>, depth: usize) {
+    if lines.len() >= 17 || depth > 2 {
+        return;
+    }
+    match value {
+        Value::Object(fields) => {
+            for (key, field) in fields {
+                if lines.len() >= 17 {
+                    break;
+                }
+                let name = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{prefix}.{key}")
+                };
+                render_human_fields(&name, field, lines, depth + 1);
+            }
+        }
+        Value::Array(items) => lines.push(format!("{prefix}: {} item(s)", items.len())),
+        Value::String(item) => lines.push(format!("{prefix}: {item}")),
+        Value::Bool(item) => lines.push(format!("{prefix}: {item}")),
+        Value::Number(item) => lines.push(format!("{prefix}: {item}")),
+        Value::Null if !prefix.is_empty() => lines.push(format!("{prefix}: none")),
+        Value::Null => {}
+    }
 }
 
 fn failure_next_step(product: &str, error: &Failure) -> String {
@@ -421,6 +512,14 @@ fn failure_message(code: &str) -> &'static str {
             "The server rejected the pairing credential."
         }
         "duplicate_option" => "The same command option was provided more than once.",
+        "editor_cancelled" => "The configuration editor exited without accepting the change.",
+        "editor_failed" => "The configured terminal editor could not be started.",
+        "editor_not_configured" => {
+            "Set VISUAL or EDITOR to a terminal editor before editing configuration."
+        }
+        "edited_configuration_too_large" => {
+            "The edited configuration exceeds the one-megabyte limit."
+        }
         "interactive_terminal_required" | "terminal_unavailable" => {
             "Interactive Setup requires an attached terminal."
         }
@@ -447,6 +546,9 @@ fn failure_message(code: &str) -> &'static str {
         "protected_input_timeout" => "Setup timed out while waiting for protected input.",
         "service_config_mismatch" => {
             "The selected configuration path does not match the installed service registration."
+        }
+        "sunshine_certificate_selection_required" => {
+            "Choose a discovered Sunshine public certificate, enter its absolute path, or explicitly select system trust."
         }
         "invalid_configuration" => "The configuration failed validation.",
         "unsafe_or_corrupt_state" => {
@@ -1352,6 +1454,47 @@ mod concise_error_tests {
         assert!(rendered.contains("Access denied while opening protected state"));
         assert!(rendered.contains("sample-client setup"));
         assert!(!rendered.contains("schema_version") && !rendered.contains("transaction_id"));
+    }
+
+    #[test]
+    fn human_success_is_a_short_summary_instead_of_json() {
+        let rendered = human_success(
+            "sample-client",
+            "status",
+            &json!({"runtime":"running","queue":{"pending":2},"items":[1,2]}),
+        );
+        assert!(rendered.starts_with("sample-client status: completed\n"));
+        assert!(rendered.contains("runtime: running"));
+        assert!(rendered.contains("queue.pending: 2"));
+        assert!(rendered.contains("items: 2 item(s)"));
+        assert!(!rendered.contains('{'));
+    }
+
+    #[test]
+    fn committed_setup_failure_explains_that_installation_was_preserved() {
+        let mut error = fail(9, "connection_unconfirmed");
+        error.committed = true;
+        let rendered = human_failure("sample-client", &error);
+        assert!(rendered.contains("Installation: committed"));
+        assert!(rendered.contains("were preserved"));
+    }
+
+    #[test]
+    fn repeated_setup_preserves_existing_service_intent() {
+        assert_eq!(
+            setup_service_intent(&json!({"installed":true,"startup":"disabled","state":"stopped"})),
+            (false, false)
+        );
+        assert_eq!(
+            setup_service_intent(
+                &json!({"installed":true,"startup":"automatic","state":"running"})
+            ),
+            (true, true)
+        );
+        assert_eq!(
+            setup_service_intent(&json!({"installed":false})),
+            (true, true)
+        );
     }
 
     #[test]
