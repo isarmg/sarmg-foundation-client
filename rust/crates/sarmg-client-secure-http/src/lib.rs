@@ -267,6 +267,18 @@ impl SecureHttpClient {
     ) -> Result<BoundedResponse, Error> {
         let url = Url::parse(url).map_err(|_| Error::UnsafeUrl)?;
         let policy = client_network_policy(&url)?;
+        self.post_with_policy(policy, url, headers, body).await
+    }
+
+    /// Product-selected private-device delivery. The closed policy enum keeps
+    /// plaintext and address-scope exceptions explicit at the call site.
+    pub async fn post_with_policy(
+        &self,
+        policy: NetworkPolicy,
+        url: Url,
+        headers: header::HeaderMap,
+        body: Vec<u8>,
+    ) -> Result<BoundedResponse, Error> {
         let mut request = Request::new(reqwest::Method::POST, url);
         *request.headers_mut() = headers;
         *request.body_mut() = Some(body.into());
