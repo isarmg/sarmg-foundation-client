@@ -1,6 +1,6 @@
 # Sarmg Foundation Client
 
-当前源码版本为 `0.8.0`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
+当前源码版本为 `0.8.1`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
 历史 `0.6.0` 的限制见 [历史发布记录](docs/releases/0.6.0.md)，本次命名变更不改写历史标签或制品。
 
 `sarmg-foundation-client` 是独立的 Client/客户端规范、基础实现和验收工具仓库。
