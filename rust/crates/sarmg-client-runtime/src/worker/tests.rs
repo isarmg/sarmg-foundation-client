@@ -235,8 +235,13 @@ async fn shutdown_and_lost_controllers_cancel_both_owned_futures() {
                 .unwrap()
                 .run(notifications, shutdown),
         );
-        settle().await;
-        tokio::time::sleep(Duration::from_millis(5)).await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while state.sends.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
         match mode {
             0 => {
                 stop.send(true).unwrap();
