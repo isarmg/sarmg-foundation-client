@@ -504,6 +504,9 @@ fn failure_message(code: &str) -> &'static str {
         "absolute_path_required" => "The selected path must be absolute and normalized.",
         "awaiting_configuration" => "The client has not been configured yet.",
         "awaiting_pairing" => "The client has not completed server pairing yet.",
+        "active_setup_input_requires_pair_replace" => {
+            "This installation is already paired; new protected pairing input requires the explicit pair replace workflow."
+        }
         "configuration_already_exists" => "A configuration already exists at the selected path.",
         "conflicting_input_modes" | "conflicting_input_sources" => {
             "More than one Setup input mode was selected."
@@ -546,6 +549,9 @@ fn failure_message(code: &str) -> &'static str {
         "protected_input_timeout" => "Setup timed out while waiting for protected input.",
         "service_config_mismatch" => {
             "The selected configuration path does not match the installed service registration."
+        }
+        "server_replacement_requires_pair_replace" => {
+            "The requested Server differs from the active binding; use the explicit pair replace workflow."
         }
         "sunshine_certificate_selection_required" => {
             "Choose a discovered Sunshine public certificate, enter its absolute path, or explicitly select system trust."
