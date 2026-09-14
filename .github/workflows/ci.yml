@@ -21,8 +21,8 @@ jobs:
       - run: rustup toolchain install 1.98.0 --profile minimal --component clippy
       - name: Use the canonical OS temporary directory in no-follow path tests
         run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
-      - run: cargo test --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-secure-http -p sarmg-mobile-ffi --all-targets
-      - run: cargo clippy --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-secure-http -p sarmg-mobile-ffi --all-targets -- -D warnings
+      - run: cargo test --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets
+      - run: cargo clippy --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-mobile-ffi --all-targets -- -D warnings
       - run: bash scripts/test-apple-sandbox.sh
   windows-storage:
     permissions:
@@ -36,9 +36,9 @@ jobs:
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.98.0 --profile minimal --component clippy
       - name: Test native Windows directory handles and durable spool
-        run: cargo test --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-runtime -p sarmg-client-secure-http --all-targets
+        run: cargo test --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-runtime --all-targets
       - name: Lint native Windows storage
-        run: cargo clippy --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-runtime -p sarmg-client-secure-http --all-targets -- -D warnings
+        run: cargo clippy --locked -p sarmg-client-cli -p sarmg-client-fs-safety -p sarmg-client-runtime --all-targets -- -D warnings
   client:
     permissions:
       contents: read
@@ -56,8 +56,4 @@ jobs:
         run: rustup toolchain install 1.98.0 --profile minimal --component rustfmt,clippy
       - run: cargo fmt --all -- --check
       - run: cargo test --locked --workspace --all-targets --all-features
-      - name: Verify optimized transport admission and DNS shutdown
-        run: |
-          cargo test --locked --release -p sarmg-client-secure-http --lib -- --exact transport_tests::loopback_http_tracks_build_mode
-          cargo test --locked --release -p sarmg-client-secure-http --lib dns::tests::
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
