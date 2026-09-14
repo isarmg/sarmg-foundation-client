@@ -1,6 +1,6 @@
 # Sarmg Foundation Client
 
-当前源码版本为 `0.9.2`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
+当前源码版本为 `0.9.3`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
 
 桌面 Profile 可由 `sarmg-client-runtime::local_status` 完整提供本地只读状态通道。产品只提交绑定代次、有效配置
 revision 和业务观察字段；Unix 对端身份校验、Windows 受保护命名管道、消息上限及生命周期均由 Foundation
@@ -26,7 +26,6 @@ revision 和业务观察字段；Unix 对端身份校验、Windows 受保护命�
 | `sarmg-client-secret-envelope` | 客户端对象与域绑定的有界密钥封装 |
 | `sarmg-client-secret` | 脱敏并清零的内存秘密 |
 | `sarmg-client-error` | 客户端错误与协议错误解析基础类型 |
-| `sarmg-client-secure-http` | 客户端出站 HTTP 的地址、超时和响应预算 |
 
 Profile 仅有 `desktop-client` 和 `mobile-client`，机器事实源在 `profiles/`。
 客户端产品通过 `sarmg-client.toml` 声明 Profile、能力及检查范围；服务端另用 `sarmg-product.toml`。
@@ -59,6 +58,5 @@ Linux/JVM/C 主机验证不能代替 Android/iOS/Windows/macOS 原生验收。
 - [身份与凭据快照](docs/client-identity.md)
 - [Mobile FFI](docs/mobile-ffi.md)
 - [文件句柄](docs/filesystem-handles.md)
-- [安全 HTTP 工厂](docs/secure-http.md)
 
 只支持当前合同，不提供旧版本升级、旧读取器、旧名称入口、双路径或 fallback。

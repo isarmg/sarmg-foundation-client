@@ -120,13 +120,13 @@ Worker tests cover retry deadlines, repeated wake edges, recovery events during
 an in-flight send, authorization pause/renewal, snapshot cancellation, shutdown,
 closed controllers, invalid polling delays and persistent/reset local failures.
 Batch tests cover ack-before-export, failed ack, permanent rejection, the batch
-budget and cancellation retaining the head. Host has a real loopback HTTP test
+budget and cancellation retaining the head. Host has a real local HTTPS test
 that withholds the response while issuing ten sampling notifications and then
 requires the durable queue to drain through the shared worker.
 
 Host now uses shared Unix configuration/state handles and the
 [credential transaction interface](credential-transactions.md). Remaining identity,
-complete TLS/HTTP integration and native-platform verification work is still outstanding.
+Native-platform verification work is still outstanding.
 These tests are not a declaration that P8/P11 or immutable publication is complete.
 
 ## Delivery session lifetime

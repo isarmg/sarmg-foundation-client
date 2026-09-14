@@ -9,7 +9,7 @@ owner = "foundation"
 state = "current"
 
 [capabilities.https-delivery]
-owner = "foundation"
+owner = "product-adapter"
 state = "current"
 
 [capabilities.doctor]

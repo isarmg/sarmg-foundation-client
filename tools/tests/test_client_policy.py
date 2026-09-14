@@ -22,7 +22,7 @@ version = "0.5.0"
 '''
 
 class ClientPolicyTests(unittest.TestCase):
-    def test_https_consumers_cannot_depend_on_raw_reqwest_even_by_alias(self) -> None:
+    def test_https_consumers_may_use_platform_http_clients(self) -> None:
         manifest = VALID_MANIFEST + '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
         with tempfile.TemporaryDirectory() as directory:
             product = Path(directory)
@@ -35,10 +35,7 @@ class ClientPolicyTests(unittest.TestCase):
             ]:
                 with self.subTest(dependency=dependency):
                     cargo.write_text(dependency)
-                    with self.assertRaisesRegex(ConformanceError, "secure-http-ownership"):
-                        verify_source(product, ROOT)
-            cargo.write_text('[dependencies]\nsarmg-client-secure-http="=0.5.0"\n')
-            verify_source(product, ROOT)
+                    verify_source(product, ROOT)
 
     def test_dependency_checks_cannot_exclude_the_root_manifest(self) -> None:
         manifest = (VALID_MANIFEST.replace('source_roots = ["."]', 'source_roots = ["src"]')
@@ -49,8 +46,7 @@ class ClientPolicyTests(unittest.TestCase):
             (product / "src" / "lib.rs").write_text("pub fn fixture() {}")
             (product / "sarmg-client.toml").write_text(manifest)
             (product / "Cargo.toml").write_text('[dependencies]\nreqwest="0.13"\n')
-            with self.assertRaisesRegex(ConformanceError, "secure-http-ownership"):
-                verify_source(product, ROOT)
+            verify_source(product, ROOT)
 
     def test_source_root_symlink_directories_are_rejected(self) -> None:
         component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
@@ -216,7 +212,7 @@ capabilities = ["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]
             (product / "Client.swift").write_text("import CurrentNativeModule")
             verify_source(product, ROOT)
 
-    def test_tls_input_ceiling_must_come_from_foundation(self) -> None:
+    def test_https_consumers_may_own_small_transport_helpers(self) -> None:
         manifest = VALID_MANIFEST + '''
 [[components]]
 id = "mobile"
@@ -234,7 +230,4 @@ capabilities = ["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]
             ]:
                 with self.subTest(definition=definition):
                     source.write_text(definition)
-                    with self.assertRaisesRegex(ConformanceError, "secure-http-ownership"):
-                        verify_source(product, ROOT)
-            source.write_text("use sarmg_client_secure_http::MAX_TLS_INPUT_BYTES;")
-            verify_source(product, ROOT)
+                    verify_source(product, ROOT)

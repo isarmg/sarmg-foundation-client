@@ -18,8 +18,7 @@ Host Client 的 Windows 托盘本地配置页面则属于客户端：
 不声称已提炼出通用 Client Web UI 包。其本地一次性入口凭证、loopback Host/Origin、Bearer 会话、
 本机权限提升与服务控制边界独立于 Server 的管理员 Cookie/CSRF 协议，不能用 Server 政策覆盖它们。
 
-Host 托盘的公开 Server 健康探测经 `tray_support/server_health` 调用 Client Foundation
-同步 HTTP 适配器，不再有产品本地 blocking HTTP 客户端。只发送不带 Client 凭据的
+Host 托盘的公开 Server 健康探测使用产品自身的标准异步 HTTPS 客户端。只发送不带 Client 凭据的
 `GET /health/live`，不读取 ProgramData 配置/凭据；结果不能证明服务身份下的 mTLS 或遥测投递。
 
 目前未新增页面、未迁移业务路由、未改变本机会话协议。Client 的规范检查覆盖 Rust、JavaScript、HTML、

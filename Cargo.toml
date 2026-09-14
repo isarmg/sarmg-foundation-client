@@ -8,11 +8,10 @@ members = [
   "rust/crates/sarmg-client-secret",
   "rust/crates/sarmg-client-secret-envelope",
   "rust/crates/sarmg-client-error",
-  "rust/crates/sarmg-client-secure-http",
 ]
 
 [workspace.package]
-version = "0.9.2"
+version = "0.9.3"
 edition = "2024"
 rust-version = "1.98"
 authors = ["sarmg <isarmg@163.com>"]
@@ -26,12 +25,7 @@ hkdf = "0.12"
 async-trait = "0.1"
 getrandom = "0.4"
 libc = "0.2"
-hickory-resolver = { version = "=0.26.2", default-features = false, features = ["tokio", "system-config"] }
-ipnet = "2"
 rand = "0.9"
-reqwest = { version = "0.13", default-features = false, features = ["http2"] }
-native-tls = "0.2"
-rustls = "0.23"
 rustix = { version = "1.1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

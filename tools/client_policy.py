@@ -258,13 +258,8 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
     import os
 
     manifest = verify_manifest(product_root, foundation_root)
-    capabilities = {cap for component in manifest["components"] for cap in component["capabilities"]}
     patterns = []
-    if "https-delivery" in capabilities:
-        patterns.append(("secure-http-ownership", re.compile(
-            r"\bconst\s+MAX_TLS_INPUT_BYTES\b"
-            r"|\bstruct\s+(?:SecureHttpClient|ResponseBudget|BoundedResponse)\b"
-            r"|\bfn\s+(?:read_limited|bounded_response)\s*\(")))
+    capabilities = {cap for component in manifest["components"] for cap in component["capabilities"]}
     if "bounded-spool" in capabilities:
         patterns.append(("client-runtime-ownership", re.compile(
             r"\bfn\s+(?:jitter|sampling_jitter|retry_jitter|exponential_backoff)\s*\("
@@ -321,8 +316,6 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
             if isinstance(requirement, dict) and requirement.get("workspace") is True:
                 requirement = workspace.get(dependency, {})
             package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-            if "https-delivery" in capabilities and package == "reqwest":
-                findings.append(f"[secure-http-ownership] {path}: direct reqwest dependency bypasses the shared factory")
             if package.startswith("sarmg-") and not (package.startswith("sarmg-client-") or package == "sarmg-mobile-ffi"):
                 findings.append(f"[client-boundary] {path}: server package {package}")
             if isinstance(requirement, dict):

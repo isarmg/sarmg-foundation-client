@@ -135,8 +135,8 @@ separate closed visibility policy:
 | Confidential | 0400, 0440, 0600, 0640 |
 | Public | 0400, 0440, 0444, 0600, 0640, 0644 |
 
-Host identities are Confidential; CA certificates are Public. Both share
-`sarmg-client-secure-http::MAX_TLS_INPUT_BYTES` (1 MiB). Empty inputs fail and
+Host identities are Confidential; CA certificates are Public. Product-owned TLS inputs use a
+local 1 MiB limit. Empty inputs fail and
 successful read buffers enter `SecretBytes` before parsing. CA parsing must
 produce at least one certificate: reqwest's rustls `from_pem` path can otherwise
 silently accept text with no certificates. Host now parses a nonempty bundle and
