@@ -227,6 +227,20 @@ async fn blocking_adapter_can_run_inside_tokio_and_uses_the_bounded_get_path() {
 }
 
 #[tokio::test]
+async fn refused_tcp_connection_has_a_stable_redacted_category() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    drop(listener);
+    let error = client(1024, 1024, Duration::from_secs(2))
+        .post_client(&url, header::HeaderMap::new(), Vec::new())
+        .await
+        .unwrap_err();
+    assert!(matches!(error, Error::Connect), "{error:?}");
+    assert!(std::error::Error::source(&error).is_none());
+    assert!(!format!("{error:?}/{error}").contains(&url));
+}
+
+#[tokio::test]
 async fn total_timeout_includes_body_reading_and_errors_do_not_keep_sources() {
     let transport = client(4, 1024, Duration::from_secs(2));
     let (release, body_release) = std::sync::mpsc::channel();

@@ -18,10 +18,12 @@ tokio.workspace = true
 url.workspace = true
 
 [target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+native-tls.workspace = true
 reqwest = { workspace = true, features = ["native-tls"] }
 
 [target.'cfg(all(not(windows), not(target_os = "macos")))'.dependencies]
 reqwest = { workspace = true, features = ["rustls"] }
+rustls.workspace = true
 
 [lints]
 workspace = true

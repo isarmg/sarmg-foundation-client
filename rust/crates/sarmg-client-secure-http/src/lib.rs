@@ -10,6 +10,7 @@ pub const MAX_TLS_INPUT_BYTES: usize = 1024 * 1024;
 
 pub use reqwest::{Certificate, Identity, StatusCode, header};
 use reqwest::{Client, Request, Response, redirect::Policy};
+use std::error::Error as _;
 use std::sync::{Arc, Mutex};
 use std::{
     net::{IpAddr, SocketAddr},
@@ -509,7 +510,11 @@ pub enum Error {
     RequestTooLarge,
     #[error("loopback HTTP is available only in debug builds")]
     DevelopmentOnly,
-    #[error("HTTP transport or TLS configuration failed")]
+    #[error("TCP connection failed")]
+    Connect,
+    #[error("TLS validation or handshake failed")]
+    Tls,
+    #[error("HTTP transport failed")]
     Http,
     #[error("HTTP runtime could not start or finish")]
     Runtime,
@@ -520,10 +525,30 @@ impl From<reqwest::Error> for Error {
         // Do not retain backend error sources, URLs or reflected secret values.
         if error.is_timeout() {
             Self::Timeout
+        } else if is_tls_error(&error) {
+            Self::Tls
+        } else if error.is_connect() {
+            Self::Connect
         } else {
             Self::Http
         }
     }
+}
+
+fn is_tls_error(error: &reqwest::Error) -> bool {
+    let mut source = error.source();
+    while let Some(cause) = source {
+        #[cfg(any(windows, target_os = "macos"))]
+        if cause.is::<native_tls::Error>() {
+            return true;
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        if cause.is::<rustls::Error>() {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
 }
 
 #[cfg(test)]
