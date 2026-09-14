@@ -235,7 +235,15 @@ async fn refused_tcp_connection_has_a_stable_redacted_category() {
         .post_client(&url, header::HeaderMap::new(), Vec::new())
         .await
         .unwrap_err();
+    #[cfg(not(windows))]
     assert!(matches!(error, Error::Connect), "{error:?}");
+    // Windows may hold a recently closed loopback port until the caller's
+    // shared deadline expires instead of surfacing WSAECONNREFUSED.
+    #[cfg(windows)]
+    assert!(
+        matches!(error, Error::Connect | Error::Timeout),
+        "{error:?}"
+    );
     assert!(std::error::Error::source(&error).is_none());
     assert!(!format!("{error:?}/{error}").contains(&url));
 }
