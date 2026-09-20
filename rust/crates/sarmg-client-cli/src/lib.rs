@@ -7,8 +7,12 @@ use std::{
     io::{self, IsTerminal, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::Mutex,
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 #[derive(Debug)]
 pub struct Failure {
@@ -446,7 +450,10 @@ fn failure_next_step(product: &str, error: &Failure) -> String {
         }
         "protected_input_required"
         | "protected_input_timeout"
-        | "interactive_terminal_required" => {
+        | "interactive_terminal_required"
+        | "interactive_terminal_unavailable"
+        | "terminal_mode_unavailable"
+        | "interactive_input_timeout" => {
             format!(
                 "Run `{product} setup` interactively, or provide the documented JSON through stdin."
             )
@@ -468,7 +475,9 @@ fn failure_next_step(product: &str, error: &Failure) -> String {
             format!("Run `{product} setup` to configure and pair this client.")
         }
         "credential_rejected" | "pairing_authorization_rejected" | "pairing_rejected" => {
-            format!("Create a new pairing code on the server, then run `{product} setup` again.")
+            format!(
+                "Create or rotate the authorization code on the server, then run `{product} setup --interactive`."
+            )
         }
         "pairing_postcondition_unconfirmed" | "invalid_input" | "invalid_server_origin" => {
             format!("Check the Server address and pairing code, then run `{product} setup` again.")
@@ -526,6 +535,13 @@ fn failure_message(code: &str) -> &'static str {
         "interactive_terminal_required" | "terminal_unavailable" => {
             "Interactive Setup requires an attached terminal."
         }
+        "interactive_terminal_unavailable" => "The attached terminal could not be read or written.",
+        "terminal_mode_unavailable" => {
+            "The attached terminal could not enter protected input mode."
+        }
+        "interactive_input_cancelled" => "Interactive input was cancelled.",
+        "interactive_input_timeout" => "Interactive input timed out.",
+        "input_too_large" => "The supplied input exceeds the permitted size.",
         "invalid_format" => "The output format must be human, json, or ndjson.",
         "invalid_input" => "The supplied input is incomplete or invalid.",
         "invalid_server_origin" => "The Server address must be a valid HTTPS origin.",
@@ -822,75 +838,453 @@ pub fn stdin_document<T: serde::de::DeserializeOwned + Send + 'static>(
     rx.recv_timeout(timeout)
         .map_err(|_| fail(9, "protected_input_timeout"))?
 }
-pub fn prompt(label: &str, secret: bool) -> Result<String> {
-    if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
+static INTERACTIVE_PROMPT: Mutex<()> = Mutex::new(());
+
+/// Read visible text directly from the process' controlling terminal.
+///
+/// `deadline` is absolute so time spent in earlier command phases is not
+/// silently granted again. The read stops as soon as `max_bytes` is exceeded.
+pub fn prompt_text(label: &str, max_bytes: usize, deadline: Instant) -> Result<String> {
+    read_terminal(label, false, max_bytes, deadline).map(|value| value.to_string())
+}
+
+/// Read a secret directly from the controlling terminal without echoing it.
+/// The allocation is erased when the returned value is dropped.
+pub fn prompt_secret(
+    label: &str,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Zeroizing<String>> {
+    read_terminal(label, true, max_bytes, deadline)
+}
+
+fn read_terminal(
+    label: &str,
+    secret: bool,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Zeroizing<String>> {
+    if max_bytes == 0 {
+        return Err(fail(2, "input_too_large"));
+    }
+    let _prompt = INTERACTIVE_PROMPT
+        .lock()
+        .map_err(|_| fail(8, "interactive_terminal_unavailable"))?;
+    #[cfg(unix)]
+    return unix_terminal_input(label, secret, max_bytes, deadline);
+    #[cfg(windows)]
+    return windows_terminal_input(label, secret, max_bytes, deadline);
+}
+
+#[cfg(unix)]
+static TERMINAL_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+#[cfg(unix)]
+extern "C" fn terminal_signal_handler(signal: libc::c_int) {
+    TERMINAL_SIGNAL.store(signal, std::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(unix)]
+struct TerminalSignalGuard {
+    previous: Vec<(libc::c_int, libc::sigaction)>,
+}
+
+#[cfg(unix)]
+impl TerminalSignalGuard {
+    fn install() -> Result<Self> {
+        TERMINAL_SIGNAL.store(0, std::sync::atomic::Ordering::SeqCst);
+        let mut guard = Self { previous: vec![] };
+        for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            action.sa_sigaction = terminal_signal_handler as *const () as usize;
+            action.sa_flags = 0;
+            unsafe { libc::sigemptyset(&mut action.sa_mask) };
+            let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+            if unsafe { libc::sigaction(signal, &action, &mut previous) } != 0 {
+                return Err(fail(2, "terminal_mode_unavailable")
+                    .with_detail(std::io::Error::last_os_error()));
+            }
+            guard.previous.push((signal, previous));
+        }
+        Ok(guard)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for TerminalSignalGuard {
+    fn drop(&mut self) {
+        for (signal, previous) in self.previous.iter().rev() {
+            unsafe { libc::sigaction(*signal, previous, std::ptr::null_mut()) };
+        }
+        TERMINAL_SIGNAL.store(0, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[cfg(unix)]
+struct UnixTerminalMode {
+    fd: std::os::fd::RawFd,
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl Drop for UnixTerminalMode {
+    fn drop(&mut self) {
+        unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.original) };
+    }
+}
+
+#[cfg(unix)]
+fn unix_terminal_input(
+    label: &str,
+    secret: bool,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Zeroizing<String>> {
+    use std::{fs::OpenOptions, os::fd::AsRawFd};
+
+    let mut terminal = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .map_err(|error| fail(2, "interactive_terminal_required").with_detail(error))?;
+    if !terminal.is_terminal() {
         return Err(fail(2, "interactive_terminal_required"));
     }
-    eprint!("{label}: ");
-    io::stderr().flush().map_err(input_error)?;
-    #[cfg(unix)]
-    {
-        struct EchoGuard(Option<String>);
-        impl Drop for EchoGuard {
-            fn drop(&mut self) {
-                if let Some(mode) = &self.0 {
-                    let _ = Command::new("/bin/stty")
-                        .arg(mode)
-                        .stdin(Stdio::inherit())
-                        .status();
-                    eprintln!();
+    let fd = terminal.as_raw_fd();
+    let mut original: libc::termios = unsafe { std::mem::zeroed() };
+    if unsafe { libc::tcgetattr(fd, &mut original) } != 0 {
+        return Err(
+            fail(2, "terminal_mode_unavailable").with_detail(std::io::Error::last_os_error())
+        );
+    }
+    let mut protected = original;
+    protected.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG);
+    protected.c_cc[libc::VMIN] = 0;
+    protected.c_cc[libc::VTIME] = 0;
+    let _signals = TerminalSignalGuard::install()?;
+    if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &protected) } != 0 {
+        return Err(
+            fail(2, "terminal_mode_unavailable").with_detail(std::io::Error::last_os_error())
+        );
+    }
+    let mode = UnixTerminalMode { fd, original };
+    let suffix = if secret {
+        " (input hidden; type or paste, then press Enter): "
+    } else {
+        ": "
+    };
+    terminal
+        .write_all(format!("{label}{suffix}").as_bytes())
+        .and_then(|_| terminal.flush())
+        .map_err(|error| fail(2, "interactive_terminal_unavailable").with_detail(error))?;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(max_bytes.min(4096)));
+    let result = 'input: loop {
+        if TERMINAL_SIGNAL.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            break Err(fail(130, "interactive_input_cancelled"));
+        }
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break Err(fail(9, "interactive_input_timeout"));
+        };
+        if remaining.is_zero() {
+            break Err(fail(9, "interactive_input_timeout"));
+        }
+        let millis = remaining.as_millis().clamp(1, libc::c_int::MAX as u128) as libc::c_int;
+        let mut event = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ready = unsafe { libc::poll(&mut event, 1, millis) };
+        if ready == 0 {
+            break Err(fail(9, "interactive_input_timeout"));
+        }
+        if ready < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
+        }
+        if event.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            break Err(fail(2, "interactive_terminal_unavailable"));
+        }
+        let mut chunk = Zeroizing::new([0_u8; 256]);
+        let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+        if count == 0 {
+            break Err(fail(2, "interactive_input_cancelled"));
+        }
+        if count < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted
+                || error.kind() == std::io::ErrorKind::WouldBlock
+            {
+                continue;
+            }
+            break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
+        }
+        for byte in &chunk[..count as usize] {
+            match *byte {
+                b'\r' | b'\n' => {
+                    let value = std::mem::take(&mut *bytes);
+                    match String::from_utf8(value) {
+                        Ok(value) => break 'input Ok(Zeroizing::new(value)),
+                        Err(error) => {
+                            let mut invalid = error.into_bytes();
+                            invalid.zeroize();
+                            break 'input Err(fail(2, "invalid_input"));
+                        }
+                    }
+                }
+                3 => break 'input Err(fail(130, "interactive_input_cancelled")),
+                8 | 127 => {
+                    if let Some(removed) = bytes.pop() {
+                        if removed & 0b1100_0000 == 0b1000_0000 {
+                            while bytes
+                                .last()
+                                .is_some_and(|byte| byte & 0b1100_0000 == 0b1000_0000)
+                            {
+                                bytes.pop();
+                            }
+                            bytes.pop();
+                        }
+                        if !secret {
+                            let _ = terminal.write_all(b"\x08 \x08");
+                            let _ = terminal.flush();
+                        }
+                    }
+                }
+                byte if byte < 0x20 => {}
+                byte => {
+                    bytes.push(byte);
+                    if bytes.len() > max_bytes {
+                        unsafe { libc::tcflush(fd, libc::TCIFLUSH) };
+                        break 'input Err(fail(2, "input_too_large"));
+                    }
+                    if !secret {
+                        let _ = terminal.write_all(&[byte]);
+                        let _ = terminal.flush();
+                    }
                 }
             }
         }
-        let mode = if secret {
-            let o = Command::new("/bin/stty")
-                .arg("-g")
-                .stdin(Stdio::inherit())
-                .output()
-                .map_err(input_error)?;
-            if !o.status.success() {
-                return Err(fail(2, "terminal_unavailable"));
-            }
-            if !Command::new("/bin/stty")
-                .arg("-echo")
-                .stdin(Stdio::inherit())
-                .status()
-                .map_err(input_error)?
-                .success()
-            {
-                return Err(fail(2, "terminal_unavailable"));
-            }
-            Some(
-                String::from_utf8(o.stdout)
-                    .map_err(input_error)?
-                    .trim()
-                    .into(),
+    };
+    drop(mode);
+    let _ = terminal.write_all(b"\r\n");
+    let _ = terminal.flush();
+    result
+}
+
+#[cfg(windows)]
+fn windows_terminal_input(
+    label: &str,
+    secret: bool,
+    max_bytes: usize,
+    deadline: Instant,
+) -> Result<Zeroizing<String>> {
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
+    use windows_sys::Win32::{
+        Foundation::{
+            GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+        },
+        Storage::FileSystem::{CreateFileW, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING},
+        System::{
+            Console::{
+                ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
+                FlushConsoleInputBuffer, GetConsoleMode, ReadConsoleW, SetConsoleMode,
+                WriteConsoleW,
+            },
+            Threading::WaitForSingleObject,
+        },
+    };
+
+    fn wide(value: &str) -> Vec<u16> {
+        OsStr::new(value).encode_wide().collect()
+    }
+    fn open_console(name: &str, access: u32) -> Result<OwnedWindowsHandle> {
+        let name: Vec<u16> = OsStr::new(name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let handle = unsafe {
+            CreateFileW(
+                name.as_ptr(),
+                access,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                std::ptr::null(),
+                OPEN_EXISTING,
+                0,
+                std::ptr::null_mut(),
             )
-        } else {
-            None
         };
-        let _guard = EchoGuard(mode);
-        let mut value = String::new();
-        io::stdin().read_line(&mut value).map_err(input_error)?;
-        if value.len() > 65536 {
-            return Err(fail(2, "input_too_large"));
-        }
-        Ok(value.trim_end_matches(['\r', '\n']).into())
-    }
-    #[cfg(windows)]
-    {
-        if secret {
-            let o=Command::new("powershell.exe").args(["-NoProfile","-Command","$s=Read-Host -AsSecureString; $p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); try {[Console]::Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($p))} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}"]).stdin(Stdio::inherit()).output().map_err(input_error)?;
-            if !o.status.success() {
-                return Err(fail(2, "terminal_unavailable"));
-            }
-            String::from_utf8(o.stdout).map_err(input_error)
+        if handle == INVALID_HANDLE_VALUE {
+            Err(fail(2, "interactive_terminal_required")
+                .with_detail(std::io::Error::last_os_error()))
         } else {
-            let mut s = String::new();
-            io::stdin().read_line(&mut s).map_err(input_error)?;
-            Ok(s.trim_end_matches(['\r', '\n']).into())
+            Ok(OwnedWindowsHandle(handle))
         }
     }
+    fn write_console(handle: windows_sys::Win32::Foundation::HANDLE, units: &[u16]) -> Result<()> {
+        let mut written = 0;
+        if unsafe {
+            WriteConsoleW(
+                handle,
+                units.as_ptr().cast(),
+                units.len() as u32,
+                &mut written,
+                std::ptr::null_mut(),
+            )
+        } == 0
+            || written != units.len() as u32
+        {
+            return Err(fail(2, "interactive_terminal_unavailable")
+                .with_detail(std::io::Error::last_os_error()));
+        }
+        Ok(())
+    }
+    struct WindowsConsoleMode {
+        handle: windows_sys::Win32::Foundation::HANDLE,
+        original: u32,
+    }
+    impl Drop for WindowsConsoleMode {
+        fn drop(&mut self) {
+            unsafe { SetConsoleMode(self.handle, self.original) };
+        }
+    }
+
+    let input = open_console("CONIN$", GENERIC_READ | GENERIC_WRITE)?;
+    let output = open_console("CONOUT$", GENERIC_READ | GENERIC_WRITE)?;
+    let mut original = 0;
+    if unsafe { GetConsoleMode(input.0, &mut original) } == 0 {
+        return Err(
+            fail(2, "terminal_mode_unavailable").with_detail(std::io::Error::last_os_error())
+        );
+    }
+    let protected = original & !(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT);
+    if unsafe { SetConsoleMode(input.0, protected) } == 0 {
+        return Err(
+            fail(2, "terminal_mode_unavailable").with_detail(std::io::Error::last_os_error())
+        );
+    }
+    let mode = WindowsConsoleMode {
+        handle: input.0,
+        original,
+    };
+    let suffix = if secret {
+        " (input hidden; type or paste, then press Enter): "
+    } else {
+        ": "
+    };
+    write_console(output.0, &wide(&format!("{label}{suffix}")))?;
+    let mut units = Zeroizing::new(Vec::<u16>::with_capacity(max_bytes.min(4096)));
+    let mut utf8_bytes = 0_usize;
+    let result = loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            break Err(fail(9, "interactive_input_timeout"));
+        };
+        if remaining.is_zero() {
+            break Err(fail(9, "interactive_input_timeout"));
+        }
+        let millis = remaining.as_millis().clamp(1, u32::MAX as u128) as u32;
+        match unsafe { WaitForSingleObject(input.0, millis) } {
+            WAIT_TIMEOUT => break Err(fail(9, "interactive_input_timeout")),
+            WAIT_OBJECT_0 => {}
+            _ => {
+                break Err(fail(2, "interactive_terminal_unavailable")
+                    .with_detail(std::io::Error::last_os_error()));
+            }
+        }
+        let mut unit = 0_u16;
+        let mut read = 0;
+        if unsafe {
+            ReadConsoleW(
+                input.0,
+                (&mut unit as *mut u16).cast(),
+                1,
+                &mut read,
+                std::ptr::null_mut(),
+            )
+        } == 0
+        {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() == Some(995) {
+                break Err(fail(130, "interactive_input_cancelled"));
+            }
+            break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
+        }
+        if read == 0 {
+            break Err(fail(2, "interactive_input_cancelled"));
+        }
+        match unit {
+            10 => {}
+            13 => match String::from_utf16(&units) {
+                Ok(value) => break Ok(Zeroizing::new(value)),
+                Err(_) => break Err(fail(2, "invalid_input")),
+            },
+            3 => break Err(fail(130, "interactive_input_cancelled")),
+            8 | 127 => {
+                if let Some(removed) = units.pop() {
+                    if (0xDC00..=0xDFFF).contains(&removed)
+                        && units
+                            .last()
+                            .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit))
+                    {
+                        units.pop();
+                        utf8_bytes = utf8_bytes.saturating_sub(4);
+                    } else if !(0xD800..=0xDBFF).contains(&removed) {
+                        utf8_bytes = utf8_bytes.saturating_sub(
+                            char::from_u32(removed as u32)
+                                .map(char::len_utf8)
+                                .unwrap_or(0),
+                        );
+                    }
+                    if !secret {
+                        let _ = write_console(output.0, &[8, 32, 8]);
+                    }
+                }
+            }
+            unit if unit < 0x20 => {}
+            unit => {
+                let previous_high_surrogate = units
+                    .last()
+                    .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit));
+                let encoded_bytes = if (0xD800..=0xDBFF).contains(&unit) {
+                    if previous_high_surrogate {
+                        break Err(fail(2, "invalid_input"));
+                    }
+                    0
+                } else if (0xDC00..=0xDFFF).contains(&unit) {
+                    if !previous_high_surrogate {
+                        break Err(fail(2, "invalid_input"));
+                    }
+                    4
+                } else {
+                    if previous_high_surrogate {
+                        break Err(fail(2, "invalid_input"));
+                    }
+                    char::from_u32(unit as u32)
+                        .map(char::len_utf8)
+                        .ok_or_else(|| fail(2, "invalid_input"))?
+                };
+                units.push(unit);
+                utf8_bytes = utf8_bytes.saturating_add(encoded_bytes);
+                if utf8_bytes > max_bytes {
+                    unsafe { FlushConsoleInputBuffer(input.0) };
+                    break Err(fail(2, "input_too_large"));
+                }
+                if !secret && encoded_bytes != 0 {
+                    let start = if (0xDC00..=0xDFFF).contains(&unit) {
+                        units.len() - 2
+                    } else {
+                        units.len() - 1
+                    };
+                    let _ = write_console(output.0, &units[start..]);
+                }
+            }
+        }
+    };
+    drop(mode);
+    let _ = write_console(output.0, &[13, 10]);
+    result
 }
 
 pub struct Service {
@@ -1439,6 +1833,129 @@ fn log_message(message: &str) -> String {
 #[cfg(test)]
 mod concise_error_tests {
     use super::*;
+
+    #[cfg(unix)]
+    fn run_prompt_child(input: Option<&[u8]>, mode: &str) -> (String, libc::tcflag_t) {
+        use std::{
+            fs::File,
+            os::{fd::FromRawFd, unix::process::CommandExt},
+            process::Stdio,
+        };
+
+        let mut master_fd = -1;
+        let mut slave_fd = -1;
+        assert_eq!(
+            unsafe {
+                libc::openpty(
+                    &mut master_fd,
+                    &mut slave_fd,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    std::ptr::null(),
+                )
+            },
+            0
+        );
+        let mut master = unsafe { File::from_raw_fd(master_fd) };
+        let slave = unsafe { File::from_raw_fd(slave_fd) };
+        let mut initial: libc::termios = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::tcgetattr(master_fd, &mut initial) }, 0);
+
+        let mut command = Command::new(std::env::current_exe().expect("test executable"));
+        command
+            .arg("--exact")
+            .arg("concise_error_tests::unix_prompt_child")
+            .arg("--nocapture")
+            .env("SARMG_PROMPT_TEST", mode)
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(slave.try_clone().expect("clone PTY slave")))
+            .stderr(Stdio::from(slave.try_clone().expect("clone PTY slave")));
+        unsafe {
+            command.pre_exec(move || {
+                if libc::setsid() < 0 || libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        let mut child = command.spawn().expect("spawn prompt child");
+        drop(slave);
+
+        let started = Instant::now();
+        let mut output = Vec::new();
+        let mut sent = false;
+        loop {
+            let mut event = libc::pollfd {
+                fd: master_fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            let _ = unsafe { libc::poll(&mut event, 1, 50) };
+            if event.revents & libc::POLLIN != 0 {
+                let mut chunk = [0_u8; 512];
+                if let Ok(count) = master.read(&mut chunk) {
+                    output.extend_from_slice(&chunk[..count]);
+                }
+            }
+            if !sent
+                && String::from_utf8_lossy(&output).contains("then press Enter")
+                && let Some(input) = input
+            {
+                master.write_all(input).expect("write prompt input");
+                master.flush().expect("flush prompt input");
+                sent = true;
+            }
+            if child.try_wait().expect("poll prompt child").is_some() {
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
+        let mut restored: libc::termios = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { libc::tcgetattr(master_fd, &mut restored) }, 0);
+        assert_eq!(initial.c_lflag & libc::ECHO, restored.c_lflag & libc::ECHO);
+        (
+            String::from_utf8(output).expect("UTF-8 prompt transcript"),
+            restored.c_lflag,
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_secret_prompt_is_bounded_cancellable_and_restores_echo() {
+        let (success, _) = run_prompt_child(Some(b"private-value\n"), "success");
+        assert!(success.contains("RESULT:13"));
+        assert!(!success.contains("private-value"));
+
+        let (too_large, _) = run_prompt_child(Some(b"abcde"), "too-large");
+        assert!(too_large.contains("RESULT:input_too_large"));
+        assert!(!too_large.contains("abcde"));
+
+        let (cancelled, _) = run_prompt_child(Some(&[3]), "cancelled");
+        assert!(cancelled.contains("RESULT:interactive_input_cancelled"));
+
+        let (timed_out, _) = run_prompt_child(None, "timeout");
+        assert!(timed_out.contains("RESULT:interactive_input_timeout"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_prompt_child() {
+        let Ok(mode) = std::env::var("SARMG_PROMPT_TEST") else {
+            return;
+        };
+        let (max_bytes, timeout) = match mode.as_str() {
+            "success" => (64, Duration::from_secs(2)),
+            "too-large" => (4, Duration::from_secs(2)),
+            "cancelled" => (64, Duration::from_secs(2)),
+            "timeout" => (64, Duration::from_millis(100)),
+            _ => panic!("unknown prompt test mode"),
+        };
+        let result = prompt_secret("Authorization code", max_bytes, Instant::now() + timeout);
+        match result {
+            Ok(value) => println!("RESULT:{}", value.len()),
+            Err(error) => println!("RESULT:{}", error.code),
+        }
+    }
 
     #[test]
     fn details_are_single_line_and_bounded() {
