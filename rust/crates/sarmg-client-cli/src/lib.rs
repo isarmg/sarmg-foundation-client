@@ -962,11 +962,15 @@ fn unix_terminal_input(
     max_bytes: usize,
     deadline: Instant,
 ) -> Result<Zeroizing<String>> {
-    use std::{fs::OpenOptions, os::fd::AsRawFd};
+    use std::{
+        fs::OpenOptions,
+        os::{fd::AsRawFd, unix::fs::OpenOptionsExt},
+    };
 
     let mut terminal = OpenOptions::new()
         .read(true)
         .write(true)
+        .custom_flags(libc::O_NONBLOCK)
         .open("/dev/tty")
         .map_err(|error| fail(2, "interactive_terminal_required").with_detail(error))?;
     if !terminal.is_terminal() {
@@ -1029,9 +1033,12 @@ fn unix_terminal_input(
             }
             break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
         }
-        if event.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+        if event.revents & libc::POLLNVAL != 0 {
             break Err(fail(2, "interactive_terminal_unavailable"));
         }
+        // POLLHUP/POLLERR can accompany unread terminal data, especially on
+        // Darwin PTYs. Always drain first; the nonblocking descriptor keeps
+        // this read inside the absolute deadline when no byte is ready yet.
         let mut chunk = Zeroizing::new([0_u8; 256]);
         let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
         if count == 0 {
@@ -1042,6 +1049,9 @@ fn unix_terminal_input(
             if error.kind() == std::io::ErrorKind::Interrupted
                 || error.kind() == std::io::ErrorKind::WouldBlock
             {
+                if event.revents & (libc::POLLERR | libc::POLLHUP) != 0 {
+                    std::thread::sleep(remaining.min(Duration::from_millis(1)));
+                }
                 continue;
             }
             break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
