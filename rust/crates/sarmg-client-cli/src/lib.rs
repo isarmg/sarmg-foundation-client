@@ -981,7 +981,9 @@ fn unix_terminal_input(
     }
     let mut protected = original;
     protected.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG);
-    protected.c_cc[libc::VMIN] = 0;
+    // `poll` owns the absolute deadline. Requiring one byte here avoids the
+    // zero-length read readiness semantics that Darwin PTYs apply to VMIN=0.
+    protected.c_cc[libc::VMIN] = 1;
     protected.c_cc[libc::VTIME] = 0;
     let _signals = TerminalSignalGuard::install()?;
     if unsafe { libc::tcsetattr(fd, libc::TCSAFLUSH, &protected) } != 0 {
