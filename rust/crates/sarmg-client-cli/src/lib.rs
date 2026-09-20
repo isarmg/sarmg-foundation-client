@@ -2010,7 +2010,11 @@ mod concise_error_tests {
         let result = prompt_secret("Authorization code", max_bytes, Instant::now() + timeout);
         match result {
             Ok(value) => println!("RESULT:{}", value.len()),
-            Err(error) => println!("RESULT:{}", error.code),
+            Err(error) => println!(
+                "RESULT:{}:{}",
+                error.code,
+                error.detail.as_deref().unwrap_or("no_detail")
+            ),
         }
     }
 
