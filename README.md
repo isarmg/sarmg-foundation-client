@@ -1,6 +1,6 @@
 # Sarmg Foundation Client
 
-当前源码版本为 `0.9.10`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
+当前源码版本为 `0.9.11`，统一采用 Client 命名；未通过对应原生 CI 前，不宣称跨平台验收完成。
 
 桌面 Profile 可由 `sarmg-client-runtime::local_status` 完整提供本地只读状态通道。产品只提交绑定代次、有效配置
 revision 和业务观察字段；Unix 对端身份校验、Windows 受保护命名管道、消息上限及生命周期均由 Foundation
@@ -54,6 +54,7 @@ Linux/JVM/C 主机验证不能代替 Android/iOS/Windows/macOS 原生验收。
 ## 规范
 
 - [客户端 Web 管理边界](docs/client-web.md)
+- [Foundation Server、Foundation Client 与产品边界](docs/foundation-boundary.md)
 - [Spool](docs/client-spool.md)
 - [身份与凭据快照](docs/client-identity.md)
 - [Mobile FFI](docs/mobile-ffi.md)

@@ -24,6 +24,31 @@ pub struct Failure {
     pub detail: Option<String>,
 }
 pub type Result<T> = std::result::Result<T, Failure>;
+
+/// Product-owned descriptions for product error codes.
+///
+/// Foundation owns the output envelope and descriptions for errors raised by
+/// its CLI, terminal and service primitives. Pairing protocols, remote API
+/// semantics and recovery instructions remain in the product that defines
+/// those contracts.
+pub trait ProductErrorCatalog {
+    fn message(&self, code: &'static str) -> Option<&'static str>;
+    fn next_step(&self, product: &str, error: &Failure) -> Option<String>;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoProductErrorCatalog;
+
+impl ProductErrorCatalog for NoProductErrorCatalog {
+    fn message(&self, _code: &'static str) -> Option<&'static str> {
+        None
+    }
+
+    fn next_step(&self, _product: &str, _error: &Failure) -> Option<String> {
+        None
+    }
+}
+
 pub fn fail(exit: u8, code: &'static str) -> Failure {
     Failure {
         exit,
@@ -326,7 +351,13 @@ pub fn redact(value: &mut Value) {
         _ => (),
     }
 }
-pub fn emit(product: &str, command: &str, format: &str, result: &Result<Value>) -> u8 {
+pub fn emit<C: ProductErrorCatalog + ?Sized>(
+    product: &str,
+    command: &str,
+    format: &str,
+    result: &Result<Value>,
+    product_errors: &C,
+) -> u8 {
     let (exit, mut value) = match result {
         Ok(v) => (
             0,
@@ -334,7 +365,7 @@ pub fn emit(product: &str, command: &str, format: &str, result: &Result<Value>) 
         ),
         Err(e) => (
             e.exit,
-            json!({"schema_version":1,"product":product,"command":command,"ok":false,"error":{"code":e.code,"message":failure_message(e.code),"step":e.step,"detail":e.detail,"retryable":matches!(e.exit,5|6|9),"committed":e.committed,"transaction_id":e.transaction_id,"next_step":failure_next_step(product, e)}}),
+            json!({"schema_version":1,"product":product,"command":command,"ok":false,"error":{"code":e.code,"message":failure_message(e, product_errors),"step":e.step,"detail":e.detail,"retryable":matches!(e.exit,5|6|9),"committed":e.committed,"transaction_id":e.transaction_id,"next_step":failure_next_step(product, e, product_errors)}}),
         ),
     };
     if let Ok(Value::Object(fields)) = result {
@@ -357,7 +388,7 @@ pub fn emit(product: &str, command: &str, format: &str, result: &Result<Value>) 
     let encoded = if format == "human"
         && let Err(error) = result
     {
-        Ok(human_failure(product, error))
+        Ok(human_failure(product, error, product_errors))
     } else if format == "human" {
         Ok(human_success(product, command, &value["result"]))
     } else {
@@ -386,7 +417,11 @@ pub fn requested_error_format(raw: &[String]) -> &'static str {
         .unwrap_or("human")
 }
 
-fn human_failure(product: &str, error: &Failure) -> String {
+fn human_failure<C: ProductErrorCatalog + ?Sized>(
+    product: &str,
+    error: &Failure,
+    product_errors: &C,
+) -> String {
     let location = error
         .step
         .map(|step| format!(" at {step}"))
@@ -395,7 +430,7 @@ fn human_failure(product: &str, error: &Failure) -> String {
         "Error [{}]{}: {}",
         error.code,
         location,
-        failure_message(error.code)
+        failure_message(error, product_errors)
     );
     if let Some(detail) = error.detail.as_deref() {
         message.push_str("\nReason: ");
@@ -405,7 +440,7 @@ fn human_failure(product: &str, error: &Failure) -> String {
         message.push_str("\nInstallation: committed; saved configuration, identity, and service state were preserved.");
     }
     message.push_str("\nNext: ");
-    message.push_str(&failure_next_step(product, error));
+    message.push_str(&failure_next_step(product, error, product_errors));
     message
 }
 
@@ -443,7 +478,14 @@ fn render_human_fields(prefix: &str, value: &Value, lines: &mut Vec<String>, dep
     }
 }
 
-fn failure_next_step(product: &str, error: &Failure) -> String {
+fn failure_next_step<C: ProductErrorCatalog + ?Sized>(
+    product: &str,
+    error: &Failure,
+    product_errors: &C,
+) -> String {
+    if let Some(next_step) = product_errors.next_step(product, error) {
+        return next_step;
+    }
     match error.code {
         "administrator_privileges_required" | "elevation_cancelled" | "elevation_failed" => {
             format!("Use an administrator or root terminal, then run `{product} setup` again.")
@@ -468,34 +510,7 @@ fn failure_next_step(product: &str, error: &Failure) -> String {
         | "invalid_timeout"
         | "conflicting_input_modes"
         | "conflicting_input_sources" => format!("Run `{product} --help` and correct the command."),
-        "awaiting_configuration"
-        | "awaiting_pairing"
-        | "no_pairing_transaction"
-        | "pairing_transaction_missing" => {
-            format!("Run `{product} setup` to configure and pair this client.")
-        }
-        "credential_rejected" | "pairing_authorization_rejected" | "pairing_rejected" => {
-            format!(
-                "Create or rotate the authorization code on the server, then run `{product} setup --interactive`."
-            )
-        }
-        "pairing_postcondition_unconfirmed" | "invalid_input" | "invalid_server_origin" => {
-            format!("Check the Server address and pairing code, then run `{product} setup` again.")
-        }
-        "server_unavailable" | "server_unavailable_or_untrusted" | "pairing_server_unavailable" => {
-            format!(
-                "Check the Server URL, TLS certificate, and network, then retry `{product} setup`."
-            )
-        }
-        "pairing_expired" => {
-            format!("Run `{product} setup` again; a new pairing transaction will be created.")
-        }
-        "pairing_endpoint_not_found" | "pairing_http_method_rejected" => {
-            "Check the Server address and reverse-proxy routing, then retry Setup.".into()
-        }
-        "pairing_server_upgrade_required" | "pairing_protocol_unsupported" => {
-            "Upgrade the older Client or Server according to the compatibility manifest.".into()
-        }
+        "invalid_input" => format!("Check the supplied input, then retry `{product}`."),
         "service_not_installed" => {
             format!("Run `{product} setup` to install and verify the service.")
         }
@@ -511,26 +526,29 @@ fn failure_next_step(product: &str, error: &Failure) -> String {
         "invalid_configuration" | "unsafe_or_corrupt_state" => {
             format!("Run `{product} doctor`; repair the reported configuration or state problem.")
         }
-        _ if error.exit == 9 => "Inspect pairing status and resume the same transaction.".into(),
-        _ if error.exit == 5 => "Stop the service and retry the same command.".into(),
+        _ if error.exit == 9 => {
+            "Check the operation status, then retry within a new deadline.".into()
+        }
+        _ if error.exit == 5 => "Resolve the reported conflict, then retry the command.".into(),
         _ => format!("Run `{product} doctor` for the focused diagnostic checks."),
     }
 }
 
-fn failure_message(code: &str) -> &'static str {
+fn failure_message<C: ProductErrorCatalog + ?Sized>(
+    error: &Failure,
+    product_errors: &C,
+) -> &'static str {
+    product_errors
+        .message(error.code)
+        .unwrap_or_else(|| foundation_failure_message(error.code))
+}
+
+fn foundation_failure_message(code: &str) -> &'static str {
     match code {
         "absolute_path_required" => "The selected path must be absolute and normalized.",
-        "awaiting_configuration" => "The client has not been configured yet.",
-        "awaiting_pairing" => "The client has not completed server pairing yet.",
-        "active_setup_input_requires_pair_replace" => {
-            "This installation is already paired; new protected pairing input requires the explicit pair replace workflow."
-        }
         "configuration_already_exists" => "A configuration already exists at the selected path.",
         "conflicting_input_modes" | "conflicting_input_sources" => {
             "More than one Setup input mode was selected."
-        }
-        "credential_rejected" | "pairing_authorization_rejected" | "pairing_rejected" => {
-            "The server rejected the pairing credential."
         }
         "duplicate_option" => "The same command option was provided more than once.",
         "editor_cancelled" => "The configuration editor exited without accepting the change.",
@@ -553,34 +571,10 @@ fn failure_message(code: &str) -> &'static str {
         "input_too_large" => "The supplied input exceeds the permitted size.",
         "invalid_format" => "The output format must be human, json, or ndjson.",
         "invalid_input" => "The supplied input is incomplete or invalid.",
-        "invalid_server_origin" => "The Server address must be a valid HTTPS origin.",
         "invalid_timeout" => "The timeout must be greater than zero and no more than one hour.",
         "missing_option_value" => "A command option is missing its value.",
         "missing_required_option" => "A required command option was not supplied.",
-        "no_pairing_transaction" | "pairing_transaction_missing" => {
-            "There is no saved pairing transaction to resume."
-        }
         "option_not_valid_for_command" => "This option is not valid for the selected command.",
-        "pairing_expired" => "The pairing request expired before authorization completed.",
-        "pairing_endpoint_not_found" => {
-            "The configured Server does not expose the required pairing endpoint."
-        }
-        "pairing_http_method_rejected" => {
-            "The Server or reverse proxy rejected the HTTP method required for pairing."
-        }
-        "pairing_server_upgrade_required" => {
-            "The Server requires a different pairing contract or a component upgrade."
-        }
-        "pairing_request_rejected" => "The Server rejected the pairing request.",
-        "pairing_unexpected_http_status" => {
-            "The Server returned an unexpected HTTP status during pairing."
-        }
-        "pairing_protocol_unsupported" | "unsupported_protocol_or_platform" => {
-            "The client and server do not support a compatible protocol or platform."
-        }
-        "pairing_server_unavailable" | "server_unavailable" | "server_unavailable_or_untrusted" => {
-            "The server could not be reached or its TLS identity could not be trusted."
-        }
         "protected_input_required" => {
             "Setup needs protected input from an interactive prompt or stdin."
         }
@@ -588,18 +582,9 @@ fn failure_message(code: &str) -> &'static str {
         "service_config_mismatch" => {
             "The selected configuration path does not match the installed service registration."
         }
-        "server_replacement_requires_pair_replace" => {
-            "The requested Server differs from the active binding; use the explicit pair replace workflow."
-        }
-        "sunshine_certificate_selection_required" => {
-            "Choose a discovered Sunshine public certificate, enter its absolute path, or explicitly select system trust."
-        }
         "invalid_configuration" => "The configuration failed validation.",
         "unsafe_or_corrupt_state" => {
             "The selected configuration or protected state is missing, unsafe, or corrupt."
-        }
-        "pairing_postcondition_unconfirmed" => {
-            "Pairing returned without a durable active identity."
         }
         "service_not_installed" => "The operating-system service is not installed.",
         "service_registration_mismatch" => {
@@ -1828,9 +1813,14 @@ impl Service {
     }
 }
 
-pub fn follow_logs(product: &str, service: &Service, mut args: Args) -> u8 {
+pub fn follow_logs<C: ProductErrorCatalog + ?Sized>(
+    product: &str,
+    service: &Service,
+    mut args: Args,
+    product_errors: &C,
+) -> u8 {
     if let Err(error) = args.validate_options(&["--tail", "--since", "--follow"]) {
-        return emit(product, "logs", "ndjson", &Err(error));
+        return emit(product, "logs", "ndjson", &Err(error), product_errors);
     }
     let rt = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
@@ -1839,10 +1829,10 @@ pub fn follow_logs(product: &str, service: &Service, mut args: Args) -> u8 {
     rt.block_on(async {let deadline=tokio::time::Instant::now()+args.timeout;loop {
         let result=service.logs(&args);
         match result {
-            Err(e)=>return emit(product,"logs","ndjson",&Err(e)),
+            Err(e)=>return emit(product,"logs","ndjson",&Err(e),product_errors),
             Ok(value)=>if let Some(entries)=value["entries"].as_array(){for entry in entries {
                 if let Some(cursor)=entry["cursor"].as_str(){args.options.insert("--log-cursor".into(),cursor.into());}
-                let code=emit(product,"logs","ndjson",&Ok(entry.clone()));if code!=0{return code;}
+                let code=emit(product,"logs","ndjson",&Ok(entry.clone()),product_errors);if code!=0{return code;}
             }},
         }
         tokio::select!{_=tokio::signal::ctrl_c()=>return 130,_=tokio::time::sleep_until(deadline)=>return 0,_=tokio::time::sleep(Duration::from_secs(1))=>{}}
@@ -2034,7 +2024,7 @@ mod concise_error_tests {
         let error = fail(7, "administrator_privileges_required")
             .at_step("configuration")
             .with_detail("Access denied\nwhile opening protected state");
-        let rendered = human_failure("sample-client", &error);
+        let rendered = human_failure("sample-client", &error, &NoProductErrorCatalog);
         assert_eq!(rendered.lines().count(), 3);
         assert!(rendered.contains("administrator_privileges_required"));
         assert!(rendered.contains("Access denied while opening protected state"));
@@ -2062,9 +2052,35 @@ mod concise_error_tests {
     fn committed_setup_failure_explains_that_installation_was_preserved() {
         let mut error = fail(9, "connection_unconfirmed");
         error.committed = true;
-        let rendered = human_failure("sample-client", &error);
+        let rendered = human_failure("sample-client", &error, &NoProductErrorCatalog);
         assert!(rendered.contains("Installation: committed"));
         assert!(rendered.contains("were preserved"));
+    }
+
+    struct ExampleProductErrors;
+
+    impl ProductErrorCatalog for ExampleProductErrors {
+        fn message(&self, code: &'static str) -> Option<&'static str> {
+            (code == "example_protocol_rejected").then_some("The example protocol rejected input.")
+        }
+
+        fn next_step(&self, product: &str, error: &Failure) -> Option<String> {
+            (error.code == "example_protocol_rejected")
+                .then(|| format!("Repair the example binding, then retry `{product}`."))
+        }
+    }
+
+    #[test]
+    fn product_error_catalog_owns_protocol_presentation() {
+        let error = fail(7, "example_protocol_rejected");
+        let rendered = human_failure("sample-client", &error, &ExampleProductErrors);
+        assert!(rendered.contains("The example protocol rejected input."));
+        assert!(rendered.contains("Repair the example binding"));
+
+        assert_eq!(
+            foundation_failure_message("pairing_endpoint_not_found"),
+            "The operation failed; error.code identifies the exact machine-readable reason."
+        );
     }
 
     #[test]

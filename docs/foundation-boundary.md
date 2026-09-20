@@ -1,0 +1,21 @@
+# Foundation Server、Foundation Client 与产品边界
+
+两个 Foundation 仓库都是构建期上游，不是产品功能的集中仓库，也不在生产环境形成中央服务。它们互不依赖；产品分别锁定所需 Foundation 的精确版本和 Git revision。
+
+| 所属 | 应负责 | 不应负责 |
+|---|---|---|
+| Foundation Server | Server 进程、管理 Server 的 Web、管理员认证、HTTP/数据库/文件安全原语、通用管理 UI 和服务端发布工具 | Client 本机状态、移动 FFI、产品实例/设备/硬件 DTO、产品配对协议和产品页面 |
+| Foundation Client | 桌面及移动 Client 的运行时、Spool、文件与秘密安全、原生终端输入、服务生命周期、本机只读状态通道和移动 FFI | 产品配对 wire、远端 API 状态解释、产品错误码及恢复文案、本机第三方服务策略和管理 Server 的 Web |
+| 产品仓库 | 业务 DTO、端点、状态机、错误码、恢复步骤、业务页面、业务安全加强和产品发布验收 | 复制 Foundation 已发布的实现并维护第二事实源 |
+
+一项实现只有同时满足以下条件才适合进入 Foundation：
+
+1. API 用平台概念表达，不包含 Host、Sunshine、Sentinel、Media 等产品名称或业务 DTO。
+2. Foundation 可以独立测试它，不需要启动某个产品的协议端点或读取产品状态。
+3. 产品仍能在 Adapter 前后施加更严格的安全规则；公共实现不会把最强产品规则降成最低共同标准。
+4. 至少存在明确的跨产品复用场景；单产品需求先留在产品仓库，成熟后再提取。
+5. Foundation 成为唯一实现源后，消费者通过不可变发布包使用它，不复制源码快照。
+
+本轮终端输入修复符合该边界：它只处理控制终端、输入上限、绝对期限和秘密清零，已由 Host、Sunshine、Sentinel 三个 Client 使用。`pairing_*` 的 HTTP 含义、用户文案和恢复步骤不符合该边界，必须由定义相应协议的产品提供。`sarmg-client-cli` 只负责稳定错误信封，并通过 `ProductErrorCatalog` 接收产品展示信息。
+
+Server 侧内容块也只保留在 `@sarmg/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。
