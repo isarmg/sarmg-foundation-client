@@ -13,8 +13,8 @@ homepage.workspace = true
 async-trait.workspace = true
 getrandom.workspace = true
 rand.workspace = true
-sarmg-client-fs-safety = { path = "../sarmg-client-fs-safety", version = "=0.9.13" }
-sarmg-client-secret = { path = "../sarmg-client-secret", version = "=0.9.13" }
+sarmg-client-fs-safety = { path = "../sarmg-client-fs-safety", version = "=0.9.14" }
+sarmg-client-secret = { path = "../sarmg-client-secret", version = "=0.9.14" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

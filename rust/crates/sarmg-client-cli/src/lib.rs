@@ -490,6 +490,9 @@ fn failure_next_step<C: ProductErrorCatalog + ?Sized>(
         "administrator_privileges_required" | "elevation_cancelled" | "elevation_failed" => {
             format!("Use an administrator or root terminal, then run `{product} setup` again.")
         }
+        "elevated_setup_timeout" => format!(
+            "Close any remaining administrator Setup window, then retry `{product} setup` with a suitable --timeout."
+        ),
         "protected_input_required"
         | "protected_input_timeout"
         | "interactive_terminal_required"
@@ -620,6 +623,9 @@ fn foundation_failure_message(code: &str) -> &'static str {
         }
         "elevation_cancelled" => "Windows administrator elevation was cancelled.",
         "elevation_failed" => "Windows could not start the elevated Setup process.",
+        "elevated_setup_timeout" => {
+            "The elevated Windows Setup process exceeded the command deadline."
+        }
         "unknown_command" => "The requested command is not recognized.",
         "unknown_option" => "The requested command option is not recognized.",
         _ => "The operation failed; error.code identifies the exact machine-readable reason.",
@@ -649,13 +655,25 @@ pub fn prepare_windows_setup_elevation(
     }
     if elevated_child {
         return if elevated {
+            if interactive {
+                eprintln!(
+                    "Administrator Setup process started. Secret input is hidden; paste or type it, then press Enter."
+                );
+            }
             Ok(WindowsSetupElevation::Continue)
         } else {
             Err(fail(7, "elevation_failed").at_step("configuration"))
         };
     }
     if installer_session || !elevated {
-        return windows_relaunch_elevated(raw).map(WindowsSetupElevation::ChildExited);
+        eprintln!(
+            "Setup requires administrator privileges. Continue in the elevated console window after approving UAC."
+        );
+        let timeout = windows_setup_timeout(raw)?;
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| fail(2, "invalid_timeout").at_step("configuration"))?;
+        return windows_relaunch_elevated(raw, deadline).map(WindowsSetupElevation::ChildExited);
     }
     Ok(WindowsSetupElevation::Continue)
 }
@@ -712,11 +730,25 @@ fn windows_is_elevated() -> Result<bool> {
 }
 
 #[cfg(windows)]
-fn windows_relaunch_elevated(raw: &[String]) -> Result<u8> {
+fn windows_setup_timeout(raw: &[String]) -> Result<Duration> {
+    let mut arguments = raw.iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "--timeout" {
+            let value = arguments
+                .next()
+                .ok_or_else(|| fail(2, "missing_option_value"))?;
+            return duration(value);
+        }
+    }
+    duration("60s")
+}
+
+#[cfg(windows)]
+fn windows_relaunch_elevated(raw: &[String], deadline: Instant) -> Result<u8> {
     use std::{ffi::OsStr, mem::size_of, os::windows::ffi::OsStrExt};
     use windows_sys::Win32::{
-        Foundation::{ERROR_CANCELLED, WAIT_OBJECT_0},
-        System::Threading::{GetExitCodeProcess, INFINITE, WaitForSingleObject},
+        Foundation::{ERROR_CANCELLED, WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::Threading::{GetExitCodeProcess, WaitForSingleObject},
         UI::{
             Shell::{
                 SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW,
@@ -763,10 +795,24 @@ fn windows_relaunch_elevated(raw: &[String]) -> Result<u8> {
         return Err(fail(6, "elevation_failed").at_step("configuration"));
     }
     let process = OwnedWindowsHandle(info.hProcess);
-    if unsafe { WaitForSingleObject(process.0, INFINITE) } != WAIT_OBJECT_0 {
-        return Err(fail(6, "elevation_failed")
-            .with_detail(std::io::Error::last_os_error())
-            .at_step("configuration"));
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| fail(9, "elevated_setup_timeout").at_step("configuration"))?;
+    let wait_millis = remaining
+        .as_millis()
+        .saturating_add(1)
+        .min(u32::MAX as u128) as u32;
+    match unsafe { WaitForSingleObject(process.0, wait_millis) } {
+        WAIT_OBJECT_0 => {}
+        WAIT_TIMEOUT => {
+            return Err(fail(9, "elevated_setup_timeout").at_step("configuration"));
+        }
+        _ => {
+            return Err(fail(6, "elevation_failed")
+                .with_detail(std::io::Error::last_os_error())
+                .at_step("configuration"));
+        }
     }
     let mut exit_code = 1;
     if unsafe { GetExitCodeProcess(process.0, &mut exit_code) } == 0 {

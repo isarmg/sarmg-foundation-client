@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-cli"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "libc",
  "serde",
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-error"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "serde",
  "serde_json",
@@ -539,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-fs-safety"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -550,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-runtime"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "async-trait",
  "getrandom 0.4.3",
@@ -570,14 +570,14 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-secret"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "sarmg-client-secret-envelope"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
@@ -590,14 +590,14 @@ dependencies = [
 
 [[package]]
 name = "sarmg-mobile-ffi"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "jni",
 ]
 
 [[package]]
 name = "sarmg-secure-xml"
-version = "0.9.13"
+version = "0.9.14"
 dependencies = [
  "quick-xml",
  "roxmltree",
