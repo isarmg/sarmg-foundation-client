@@ -10,6 +10,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 static SNAPSHOT: OnceLock<Mutex<Value>> = OnceLock::new();
+/// Update one public observation in the active local-status snapshot.
+///
+/// Calls made before a publisher starts are intentionally ignored. Secrets and
+/// configuration contents must never be passed through this diagnostic channel.
 pub fn observe(field: &str, value: Value) {
     if let Some(snapshot) = SNAPSHOT.get()
         && let Ok(mut s) = snapshot.lock()
@@ -25,6 +29,7 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+/// Owns the local-status endpoint thread and stops it on drop.
 pub struct Publisher {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -61,6 +66,7 @@ fn trusted(stream: &std::os::unix::net::UnixStream, owner: u32) -> bool {
     }
 }
 #[cfg(unix)]
+/// Publish a read-only status endpoint inside an existing protected state directory.
 pub fn publish(path: &Path, binding: String, revision: String) -> std::io::Result<Publisher> {
     use std::{
         io::{Read, Write},
@@ -128,6 +134,7 @@ pub fn publish(path: &Path, binding: String, revision: String) -> std::io::Resul
     })
 }
 #[cfg(unix)]
+/// Read a bounded status snapshot and optionally require an exact binding generation.
 pub fn read(path: &Path, binding: Option<&str>) -> Option<Value> {
     use std::{
         io::{Read, Write},
@@ -172,10 +179,12 @@ pub fn read(path: &Path, binding: Option<&str>) -> Option<Value> {
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
+/// Publish the protected Windows named-pipe status endpoint.
 pub fn publish(path: &Path, binding: String, revision: String) -> std::io::Result<Publisher> {
     windows::publish(path, binding, revision)
 }
 #[cfg(windows)]
+/// Read the Windows named-pipe status snapshot from the authenticated service image.
 pub fn read(path: &Path, binding: Option<&str>) -> Option<Value> {
     windows::read(path, binding)
 }

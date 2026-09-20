@@ -125,9 +125,9 @@ that withholds the response while issuing ten sampling notifications and then
 requires the durable queue to drain through the shared worker.
 
 Host now uses shared Unix configuration/state handles and the
-[credential transaction interface](credential-transactions.md). Remaining identity,
-Native-platform verification work is still outstanding.
-These tests are not a declaration that P8/P11 or immutable publication is complete.
+[credential transaction interface](credential-transactions.md). Windows/macOS
+native filesystem and service-lifecycle evidence must be recorded separately;
+Linux tests do not replace those platform acceptance runs.
 
 ## Delivery session lifetime
 

@@ -1,6 +1,6 @@
 # Client identity and credential ownership
 
-`sarmg-client-runtime::ClientIdentity` is the immutable runtime identity of an
+`sarmg-client-runtime::ClientIdentity` is the immutable runtime identity of a
 Client delivery context: product ID, instance ID and current payload contract.
 All three participate in equality. Construction checks nonempty ASCII
 alphanumeric/dot/dash/underscore identifiers, with 128 bytes for product and

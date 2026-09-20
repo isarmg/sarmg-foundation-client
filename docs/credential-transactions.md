@@ -60,6 +60,5 @@ wire authorization header and Host ID, durable queue removal, no rollback from
 an old Active probe, and old OTLP worker termination. Startup and partial-failure
 regressions cover the same bundle boundary. These are not real Collector tests.
 
-This is Linux execution evidence. Windows/macOS native filesystem guarantees,
-remaining native TLS/HTTP integration, full Client identity adoption and
-other P11 acceptance requirements are not completed by these tests.
+This is Linux execution evidence. It does not prove Windows/macOS filesystem
+semantics, native TLS/HTTP integration or adoption by every Client product.

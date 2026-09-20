@@ -1,6 +1,7 @@
 # Filesystem handles and publication boundaries
 
-The current filesystem primitives are being hardened and adopted in P8. This document describes the implemented Unix/Linux boundary, not completion of the Windows/macOS or all-consumer acceptance gates.
+This document describes the implemented Unix/Linux boundary. Windows uses the
+portable fallback for these generic filesystem APIs, and target-native Windows/macOS acceptance must be recorded separately.
 
 ## Unix private state
 
@@ -196,4 +197,7 @@ Products may retain business-specific symlink, upload metadata, tree mutation an
 
 ## Remaining acceptance
 
-Windows handle/reparse-point semantics and native macOS acceptance remain unverified. Product-side raw-path staging/Spool operations, cross-directory publication, bounded inventories at every consumer, and Upgrade adoption still require implementation and acceptance. Passing the Linux library tests is not P8 completion.
+The generic non-Unix fallback does not provide the descriptor-relative Unix
+guarantees and must not be documented as equivalent Windows handle/reparse-point protection. Native macOS execution and each
+product consumer's staging, publication and inventory paths require their own acceptance evidence; passing Foundation Linux
+tests proves only the boundaries exercised by those tests.

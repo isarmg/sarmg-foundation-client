@@ -9,17 +9,14 @@ Web 按被管理对象划分，不按 React、原生 JavaScript、浏览器或�
 
 ## 当前消费者
 
-Host、Media、Sunshine、Sentinel 和 Dufs 的 `clients/web` 都管理各自的 Server，保持 Server Profile。
-Host Client 的 Windows 托盘本地配置页面则属于客户端：
-`clients/host-monitor/src/windows/tray/configuration_ui.rs`、`assets/configuration.js`、
-`control_server.rs`、`control_routes.rs`、`control_response.rs` 及对应测试，均纳入 `sarmg-client.toml` 的客户端检查范围。
+Host、Media、Sunshine、Sentinel 和 Dufs 的管理 Web 都管理各自的 Server，保持 Server Profile；具体目录
+由产品仓库决定，不能假定都叫 `clients/web`。当前已登记的 Client 产品没有本机 Web 管理入口，Host
+Client 也已移除旧 Windows 托盘和 loopback 配置页。
 
-桌面客户端通过可选 `local-web-management` 能力声明这一形态。当前本地 Web Adapter 由产品拥有，
+桌面客户端将来若增加本机 Web，应通过可选 `local-web-management` 能力声明这一形态。本地 Web Adapter 由产品拥有，
 不声称已提炼出通用 Client Web UI 包。其本地一次性入口凭证、loopback Host/Origin、Bearer 会话、
 本机权限提升与服务控制边界独立于 Server 的管理员 Cookie/CSRF 协议，不能用 Server 政策覆盖它们。
 
-Host 托盘的公开 Server 健康探测使用产品自身的标准异步 HTTPS 客户端。只发送不带 Client 凭据的
-`GET /health/live`，不读取 ProgramData 配置/凭据；结果不能证明服务身份下的 mTLS 或遥测投递。
-
-目前未新增页面、未迁移业务路由、未改变本机会话协议。Client 的规范检查覆盖 Rust、JavaScript、HTML、
-TypeScript、Swift 和 Kotlin；Windows 本地控制台的目标原生运行验收仍需 Windows 环境。
+Foundation 当前只提供 `authenticated-local-status` 的只读 Unix socket/Windows named pipe 通道，不提供
+HTML 页面、浏览器会话或控制路由。Client 的规范检查可扫描 Rust、JavaScript、HTML、TypeScript、Swift
+和 Kotlin；若产品新增本机 Web，仍需在目标操作系统完成原生运行与权限验收。
