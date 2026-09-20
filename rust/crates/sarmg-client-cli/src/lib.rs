@@ -1016,13 +1016,24 @@ fn unix_terminal_input(
         if remaining.is_zero() {
             break Err(fail(9, "interactive_input_timeout"));
         }
-        let millis = remaining.as_millis().clamp(1, libc::c_int::MAX as u128) as libc::c_int;
-        let mut event = libc::pollfd {
-            fd,
-            events: libc::POLLIN,
-            revents: 0,
+        let mut readable: libc::fd_set = unsafe { std::mem::zeroed() };
+        unsafe {
+            libc::FD_ZERO(&mut readable);
+            libc::FD_SET(fd, &mut readable);
+        }
+        let mut timeout = libc::timeval {
+            tv_sec: remaining.as_secs().min(libc::time_t::MAX as u64) as libc::time_t,
+            tv_usec: remaining.subsec_micros() as libc::suseconds_t,
         };
-        let ready = unsafe { libc::poll(&mut event, 1, millis) };
+        let ready = unsafe {
+            libc::select(
+                fd + 1,
+                &mut readable,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut timeout,
+            )
+        };
         if ready == 0 {
             break Err(fail(9, "interactive_input_timeout"));
         }
@@ -1033,12 +1044,6 @@ fn unix_terminal_input(
             }
             break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
         }
-        if event.revents & libc::POLLNVAL != 0 {
-            break Err(fail(2, "interactive_terminal_unavailable"));
-        }
-        // POLLHUP/POLLERR can accompany unread terminal data, especially on
-        // Darwin PTYs. Always drain first; the nonblocking descriptor keeps
-        // this read inside the absolute deadline when no byte is ready yet.
         let mut chunk = Zeroizing::new([0_u8; 256]);
         let count = unsafe { libc::read(fd, chunk.as_mut_ptr().cast(), chunk.len()) };
         if count == 0 {
@@ -1049,9 +1054,6 @@ fn unix_terminal_input(
             if error.kind() == std::io::ErrorKind::Interrupted
                 || error.kind() == std::io::ErrorKind::WouldBlock
             {
-                if event.revents & (libc::POLLERR | libc::POLLHUP) != 0 {
-                    std::thread::sleep(remaining.min(Duration::from_millis(1)));
-                }
                 continue;
             }
             break Err(fail(2, "interactive_terminal_unavailable").with_detail(error));
