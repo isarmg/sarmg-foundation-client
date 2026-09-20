@@ -1090,8 +1090,8 @@ fn windows_terminal_input(
         System::{
             Console::{
                 ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
-                FlushConsoleInputBuffer, GetConsoleMode, ReadConsoleW, SetConsoleMode,
-                WriteConsoleW,
+                FlushConsoleInputBuffer, GetConsoleMode, INPUT_RECORD, KEY_EVENT,
+                ReadConsoleInputW, SetConsoleMode, WriteConsoleW,
             },
             Threading::WaitForSingleObject,
         },
@@ -1177,7 +1177,7 @@ fn windows_terminal_input(
     write_console(output.0, &wide(&format!("{label}{suffix}")))?;
     let mut units = Zeroizing::new(Vec::<u16>::with_capacity(max_bytes.min(4096)));
     let mut utf8_bytes = 0_usize;
-    let result = loop {
+    let result = 'input: loop {
         let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
             break Err(fail(9, "interactive_input_timeout"));
         };
@@ -1193,18 +1193,9 @@ fn windows_terminal_input(
                     .with_detail(std::io::Error::last_os_error()));
             }
         }
-        let mut unit = 0_u16;
+        let mut record = INPUT_RECORD::default();
         let mut read = 0;
-        if unsafe {
-            ReadConsoleW(
-                input.0,
-                (&mut unit as *mut u16).cast(),
-                1,
-                &mut read,
-                std::ptr::null_mut(),
-            )
-        } == 0
-        {
+        if unsafe { ReadConsoleInputW(input.0, &mut record, 1, &mut read) } == 0 {
             let error = std::io::Error::last_os_error();
             if error.raw_os_error() == Some(995) {
                 break Err(fail(130, "interactive_input_cancelled"));
@@ -1214,70 +1205,83 @@ fn windows_terminal_input(
         if read == 0 {
             break Err(fail(2, "interactive_input_cancelled"));
         }
-        match unit {
-            10 => {}
-            13 => match String::from_utf16(&units) {
-                Ok(value) => break Ok(Zeroizing::new(value)),
-                Err(_) => break Err(fail(2, "invalid_input")),
-            },
-            3 => break Err(fail(130, "interactive_input_cancelled")),
-            8 | 127 => {
-                if let Some(removed) = units.pop() {
-                    if (0xDC00..=0xDFFF).contains(&removed)
-                        && units
-                            .last()
-                            .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit))
-                    {
-                        units.pop();
-                        utf8_bytes = utf8_bytes.saturating_sub(4);
-                    } else if !(0xD800..=0xDBFF).contains(&removed) {
-                        utf8_bytes = utf8_bytes.saturating_sub(
-                            char::from_u32(removed as u32)
-                                .map(char::len_utf8)
-                                .unwrap_or(0),
-                        );
-                    }
-                    if !secret {
-                        let _ = write_console(output.0, &[8, 32, 8]);
+        if record.EventType != KEY_EVENT as u16 {
+            continue;
+        }
+        let key = unsafe { record.Event.KeyEvent };
+        if key.bKeyDown == 0 {
+            continue;
+        }
+        let unit = unsafe { key.uChar.UnicodeChar };
+        if unit == 0 {
+            continue;
+        }
+        for _ in 0..key.wRepeatCount.max(1) {
+            match unit {
+                10 => {}
+                13 => match String::from_utf16(&units) {
+                    Ok(value) => break 'input Ok(Zeroizing::new(value)),
+                    Err(_) => break 'input Err(fail(2, "invalid_input")),
+                },
+                3 => break 'input Err(fail(130, "interactive_input_cancelled")),
+                8 | 127 => {
+                    if let Some(removed) = units.pop() {
+                        if (0xDC00..=0xDFFF).contains(&removed)
+                            && units
+                                .last()
+                                .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit))
+                        {
+                            units.pop();
+                            utf8_bytes = utf8_bytes.saturating_sub(4);
+                        } else if !(0xD800..=0xDBFF).contains(&removed) {
+                            utf8_bytes = utf8_bytes.saturating_sub(
+                                char::from_u32(removed as u32)
+                                    .map(char::len_utf8)
+                                    .unwrap_or(0),
+                            );
+                        }
+                        if !secret {
+                            let _ = write_console(output.0, &[8, 32, 8]);
+                        }
                     }
                 }
-            }
-            unit if unit < 0x20 => {}
-            unit => {
-                let previous_high_surrogate = units
-                    .last()
-                    .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit));
-                let encoded_bytes = if (0xD800..=0xDBFF).contains(&unit) {
-                    if previous_high_surrogate {
-                        break Err(fail(2, "invalid_input"));
-                    }
-                    0
-                } else if (0xDC00..=0xDFFF).contains(&unit) {
-                    if !previous_high_surrogate {
-                        break Err(fail(2, "invalid_input"));
-                    }
-                    4
-                } else {
-                    if previous_high_surrogate {
-                        break Err(fail(2, "invalid_input"));
-                    }
-                    char::from_u32(unit as u32)
-                        .map(char::len_utf8)
-                        .ok_or_else(|| fail(2, "invalid_input"))?
-                };
-                units.push(unit);
-                utf8_bytes = utf8_bytes.saturating_add(encoded_bytes);
-                if utf8_bytes > max_bytes {
-                    unsafe { FlushConsoleInputBuffer(input.0) };
-                    break Err(fail(2, "input_too_large"));
-                }
-                if !secret && encoded_bytes != 0 {
-                    let start = if (0xDC00..=0xDFFF).contains(&unit) {
-                        units.len() - 2
+                unit if unit < 0x20 => {}
+                unit => {
+                    let previous_high_surrogate = units
+                        .last()
+                        .is_some_and(|unit| (0xD800..=0xDBFF).contains(unit));
+                    let encoded_bytes = if (0xD800..=0xDBFF).contains(&unit) {
+                        if previous_high_surrogate {
+                            break 'input Err(fail(2, "invalid_input"));
+                        }
+                        0
+                    } else if (0xDC00..=0xDFFF).contains(&unit) {
+                        if !previous_high_surrogate {
+                            break 'input Err(fail(2, "invalid_input"));
+                        }
+                        4
                     } else {
-                        units.len() - 1
+                        if previous_high_surrogate {
+                            break 'input Err(fail(2, "invalid_input"));
+                        }
+                        char::from_u32(unit as u32)
+                            .map(char::len_utf8)
+                            .ok_or_else(|| fail(2, "invalid_input"))?
                     };
-                    let _ = write_console(output.0, &units[start..]);
+                    units.push(unit);
+                    utf8_bytes = utf8_bytes.saturating_add(encoded_bytes);
+                    if utf8_bytes > max_bytes {
+                        unsafe { FlushConsoleInputBuffer(input.0) };
+                        break 'input Err(fail(2, "input_too_large"));
+                    }
+                    if !secret && encoded_bytes != 0 {
+                        let start = if (0xDC00..=0xDFFF).contains(&unit) {
+                            units.len() - 2
+                        } else {
+                            units.len() - 1
+                        };
+                        let _ = write_console(output.0, &units[start..]);
+                    }
                 }
             }
         }
