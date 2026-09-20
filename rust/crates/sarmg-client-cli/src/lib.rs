@@ -446,7 +446,7 @@ fn render_human_fields(prefix: &str, value: &Value, lines: &mut Vec<String>, dep
 fn failure_next_step(product: &str, error: &Failure) -> String {
     match error.code {
         "administrator_privileges_required" | "elevation_cancelled" | "elevation_failed" => {
-            format!("Approve Windows administrator elevation, then run `{product} setup` again.")
+            format!("Use an administrator or root terminal, then run `{product} setup` again.")
         }
         "protected_input_required"
         | "protected_input_timeout"
@@ -486,6 +486,15 @@ fn failure_next_step(product: &str, error: &Failure) -> String {
             format!(
                 "Check the Server URL, TLS certificate, and network, then retry `{product} setup`."
             )
+        }
+        "pairing_expired" => {
+            format!("Run `{product} setup` again; a new pairing transaction will be created.")
+        }
+        "pairing_endpoint_not_found" | "pairing_http_method_rejected" => {
+            "Check the Server address and reverse-proxy routing, then retry Setup.".into()
+        }
+        "pairing_server_upgrade_required" | "pairing_protocol_unsupported" => {
+            "Upgrade the older Client or Server according to the compatibility manifest.".into()
         }
         "service_not_installed" => {
             format!("Run `{product} setup` to install and verify the service.")
@@ -553,6 +562,19 @@ fn failure_message(code: &str) -> &'static str {
         }
         "option_not_valid_for_command" => "This option is not valid for the selected command.",
         "pairing_expired" => "The pairing request expired before authorization completed.",
+        "pairing_endpoint_not_found" => {
+            "The configured Server does not expose the required pairing endpoint."
+        }
+        "pairing_http_method_rejected" => {
+            "The Server or reverse proxy rejected the HTTP method required for pairing."
+        }
+        "pairing_server_upgrade_required" => {
+            "The Server requires a different pairing contract or a component upgrade."
+        }
+        "pairing_request_rejected" => "The Server rejected the pairing request.",
+        "pairing_unexpected_http_status" => {
+            "The Server returned an unexpected HTTP status during pairing."
+        }
         "pairing_protocol_unsupported" | "unsupported_protocol_or_platform" => {
             "The client and server do not support a compatible protocol or platform."
         }
@@ -609,7 +631,7 @@ fn failure_message(code: &str) -> &'static str {
         }
         "invalid_confirmation" => "The response must be yes or no.",
         "administrator_privileges_required" => {
-            "Setup must run with Windows administrator privileges."
+            "Setup must run with administrator or root privileges."
         }
         "elevation_cancelled" => "Windows administrator elevation was cancelled.",
         "elevation_failed" => "Windows could not start the elevated Setup process.",
@@ -1861,6 +1883,12 @@ mod concise_error_tests {
             0
         );
         let mut master = unsafe { File::from_raw_fd(master_fd) };
+        let flags = unsafe { libc::fcntl(master_fd, libc::F_GETFL) };
+        assert!(flags >= 0);
+        assert_eq!(
+            unsafe { libc::fcntl(master_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+            0
+        );
         let slave = unsafe { File::from_raw_fd(slave_fd) };
         let mut initial: libc::termios = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::tcgetattr(master_fd, &mut initial) }, 0);
@@ -1914,16 +1942,6 @@ mod concise_error_tests {
                 // master side receives another POLLIN notification. Drain
                 // the PTY once more so Darwin does not lose the final line.
                 loop {
-                    let mut event = libc::pollfd {
-                        fd: master_fd,
-                        events: libc::POLLIN,
-                        revents: 0,
-                    };
-                    if unsafe { libc::poll(&mut event, 1, 50) } <= 0
-                        || event.revents & libc::POLLIN == 0
-                    {
-                        break;
-                    }
                     let mut chunk = [0_u8; 512];
                     match master.read(&mut chunk) {
                         Ok(0) | Err(_) => break,
@@ -1947,7 +1965,7 @@ mod concise_error_tests {
     #[test]
     fn unix_secret_prompt_is_bounded_cancellable_and_restores_echo() {
         let (success, _) = run_prompt_child(Some(b"private-value\n"), "success");
-        assert!(success.contains("RESULT:13"));
+        assert!(success.contains("RESULT:13"), "transcript: {success:?}");
         assert!(!success.contains("private-value"));
 
         let (too_large, _) = run_prompt_child(Some(b"abcde"), "too-large");
@@ -1999,6 +2017,8 @@ mod concise_error_tests {
         assert_eq!(rendered.lines().count(), 3);
         assert!(rendered.contains("administrator_privileges_required"));
         assert!(rendered.contains("Access denied while opening protected state"));
+        assert!(rendered.contains("administrator or root"));
+        assert!(!rendered.contains("Windows"));
         assert!(rendered.contains("sample-client setup"));
         assert!(!rendered.contains("schema_version") && !rendered.contains("transaction_id"));
     }
