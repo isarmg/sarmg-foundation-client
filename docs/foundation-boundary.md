@@ -20,4 +20,6 @@
 
 Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只要求产品提供 HTTPS 投递 Adapter；Spool、Foundation 私有状态、Doctor、完整服务生命周期和受保护终端输入均按实际采用情况显式声明。实时流 Client 不需要为了通过清单而虚假声明批量 Spool。
 
+通用机制还必须由实际层级承载。`sarmg-secure-xml` 只提供与产品无关的解析预算，唯一消费者是 Sentinel Client，因此归入 Client Foundation；ONVIF SOAP、命名空间、设备字段和具体预算值仍由 Sentinel 定义。Client 不得反向依赖 Foundation Server。
+
 Server 侧内容块也只保留在 `@sarmg/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。

@@ -28,6 +28,10 @@ state = "current"
 owner = "foundation"
 state = "current"
 
+[capabilities.bounded-xml]
+owner = "foundation"
+state = "current"
+
 [capabilities.mobile-queue]
 owner = "foundation"
 state = "current"

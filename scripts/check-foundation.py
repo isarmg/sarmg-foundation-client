@@ -14,6 +14,7 @@ from client_policy import ConformanceError, _toml, _walk_dependencies, load_prof
 PACKAGES = {
     "sarmg-client-cli", "sarmg-client-runtime", "sarmg-mobile-ffi", "sarmg-client-fs-safety",
     "sarmg-client-secret", "sarmg-client-secret-envelope", "sarmg-client-error",
+    "sarmg-secure-xml",
 }
 
 

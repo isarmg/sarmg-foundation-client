@@ -413,6 +413,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quick-xml"
+version = "0.38.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -472,6 +481,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -501,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-cli"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "libc",
  "serde",
@@ -515,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-error"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "serde",
  "serde_json",
@@ -524,7 +539,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-fs-safety"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "getrandom 0.4.3",
  "libc",
@@ -535,7 +550,7 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-runtime"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "async-trait",
  "getrandom 0.4.3",
@@ -555,14 +570,14 @@ dependencies = [
 
 [[package]]
 name = "sarmg-client-secret"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "sarmg-client-secret-envelope"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "aes-gcm",
  "getrandom 0.4.3",
@@ -575,9 +590,18 @@ dependencies = [
 
 [[package]]
 name = "sarmg-mobile-ffi"
-version = "0.9.12"
+version = "0.9.13"
 dependencies = [
  "jni",
+]
+
+[[package]]
+name = "sarmg-secure-xml"
+version = "0.9.13"
+dependencies = [
+ "quick-xml",
+ "roxmltree",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
