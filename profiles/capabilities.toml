@@ -24,6 +24,10 @@ state = "current"
 owner = "foundation"
 state = "current"
 
+[capabilities.protected-terminal-input]
+owner = "foundation"
+state = "current"
+
 [capabilities.mobile-queue]
 owner = "foundation"
 state = "current"

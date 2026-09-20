@@ -18,4 +18,6 @@
 
 本轮终端输入修复符合该边界：它只处理控制终端、输入上限、绝对期限和秘密清零，已由 Host、Sunshine、Sentinel 三个 Client 使用。`pairing_*` 的 HTTP 含义、用户文案和恢复步骤不符合该边界，必须由定义相应协议的产品提供。`sarmg-client-cli` 只负责稳定错误信封，并通过 `ProductErrorCatalog` 接收产品展示信息。
 
+Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只要求产品提供 HTTPS 投递 Adapter；Spool、Foundation 私有状态、Doctor、完整服务生命周期和受保护终端输入均按实际采用情况显式声明。实时流 Client 不需要为了通过清单而虚假声明批量 Spool。
+
 Server 侧内容块也只保留在 `@sarmg/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。
