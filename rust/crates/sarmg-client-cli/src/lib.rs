@@ -1904,7 +1904,10 @@ mod concise_error_tests {
             .stderr(Stdio::from(slave.try_clone().expect("clone PTY slave")));
         unsafe {
             command.pre_exec(move || {
-                if libc::setsid() < 0 || libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0 {
+                if libc::setsid() < 0
+                    || libc::ioctl(slave_fd, libc::TIOCSCTTY as _, 0) < 0
+                    || libc::tcsetpgrp(slave_fd, libc::getpgrp()) < 0
+                {
                     return Err(std::io::Error::last_os_error());
                 }
                 Ok(())
