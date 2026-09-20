@@ -1910,6 +1910,26 @@ mod concise_error_tests {
                 sent = true;
             }
             if child.try_wait().expect("poll prompt child").is_some() {
+                // A child can exit after writing its result but before the
+                // master side receives another POLLIN notification. Drain
+                // the PTY once more so Darwin does not lose the final line.
+                loop {
+                    let mut event = libc::pollfd {
+                        fd: master_fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    if unsafe { libc::poll(&mut event, 1, 50) } <= 0
+                        || event.revents & libc::POLLIN == 0
+                    {
+                        break;
+                    }
+                    let mut chunk = [0_u8; 512];
+                    match master.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(count) => output.extend_from_slice(&chunk[..count]),
+                    }
+                }
                 break;
             }
             assert!(started.elapsed() < Duration::from_secs(5));
