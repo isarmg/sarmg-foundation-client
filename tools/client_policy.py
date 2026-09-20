@@ -316,7 +316,10 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
             if isinstance(requirement, dict) and requirement.get("workspace") is True:
                 requirement = workspace.get(dependency, {})
             package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-            if package.startswith("sarmg-") and not (package.startswith("sarmg-client-") or package == "sarmg-mobile-ffi"):
+            if package.startswith("sarmg-") and not (
+                package.startswith("sarmg-client-")
+                or package in {"sarmg-mobile-ffi", "sarmg-secure-xml"}
+            ):
                 findings.append(f"[client-boundary] {path}: server package {package}")
             if isinstance(requirement, dict):
                 source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
