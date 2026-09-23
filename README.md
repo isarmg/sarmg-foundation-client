@@ -1,6 +1,6 @@
 # Sarmg Foundation Client
 
-Sarmg Foundation Client `0.9.14` 为桌面和移动 Client 提供共享的安全基础能力。产品可复用命令行约定、私有状态目录、有界队列、HTTPS 投递、凭据封装、文件系统安全、移动 FFI 和受限 XML 解析，同时继续由产品仓库拥有业务协议与状态机。
+Sarmg Foundation Client `0.9.15` 为桌面和移动 Client 提供共享的安全基础能力。产品可复用命令行约定、私有状态目录、有界队列、HTTPS 投递、凭据封装、文件系统安全、移动 FFI 和受限 XML 解析，同时继续由产品仓库拥有业务协议与状态机。
 
 本仓库只负责 Client 侧基础设施；Server 管理能力由 [sarmg-foundation-server](https://github.com/isarmg/sarmg-foundation-server) 提供。两者可以独立构建和发布。
 
