@@ -259,6 +259,8 @@ pub fn setup_service_intent(status: &Value) -> (bool, bool) {
 /// Edit a product-owned JSON configuration in the user's terminal editor.
 /// The caller remains responsible for schema validation and a revision-checked
 /// atomic commit, so this helper cannot bypass product concurrency controls.
+/// The edited path may be atomically replaced by the editor; the replacement
+/// is opened without following links and read through one bounded handle.
 pub fn edit_json(current: &Value) -> Result<Value> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(fail(2, "interactive_terminal_required"));
@@ -284,14 +286,54 @@ pub fn edit_json(current: &Value) -> Result<Value> {
     if !status.success() {
         return Err(fail(2, "editor_cancelled"));
     }
-    let metadata = std::fs::symlink_metadata(file.path()).map_err(storage_error)?;
-    if !metadata.file_type().is_file() {
+    read_edited_json(file.path())
+}
+
+const MAX_EDITED_JSON_BYTES: u64 = 1_048_576;
+
+fn read_edited_json(path: &Path) -> Result<Value> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path).map_err(|error| {
+        #[cfg(unix)]
+        if error.raw_os_error() == Some(libc::ELOOP) {
+            return fail(8, "unsafe_or_corrupt_state");
+        }
+        storage_error(error)
+    })?;
+    let metadata = file.metadata().map_err(storage_error)?;
+    if !metadata.is_file() {
         return Err(fail(8, "unsafe_or_corrupt_state"));
     }
-    if metadata.len() > 1_048_576 {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(fail(8, "unsafe_or_corrupt_state"));
+        }
+    }
+    if metadata.len() > MAX_EDITED_JSON_BYTES {
         return Err(fail(2, "edited_configuration_too_large"));
     }
-    let bytes = std::fs::read(file.path()).map_err(storage_error)?;
+    let mut bytes = Vec::new();
+    file.take(MAX_EDITED_JSON_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(storage_error)?;
+    if bytes.len() as u64 > MAX_EDITED_JSON_BYTES {
+        return Err(fail(2, "edited_configuration_too_large"));
+    }
     serde_json::from_slice(&bytes).map_err(input_error)
 }
 pub fn revision(bytes: &[u8]) -> String {
@@ -1817,8 +1859,22 @@ impl Service {
             if !metadata.is_file() || metadata.nlink() != 1 || metadata.mode() & 0o077 != 0 {
                 return Err(fail(8, "unsafe_log_file"));
             }
-            let mut file = std::fs::File::open(path).map_err(storage_error)?;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut file = std::fs::OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
+                .open(path)
+                .map_err(|error| {
+                    if error.raw_os_error() == Some(libc::ELOOP) {
+                        fail(8, "unsafe_log_file")
+                    } else {
+                        storage_error(error)
+                    }
+                })?;
             let held = file.metadata().map_err(storage_error)?;
+            if !held.is_file() || held.nlink() != 1 || held.mode() & 0o077 != 0 {
+                return Err(fail(8, "unsafe_log_file"));
+            }
             if held.ino() != metadata.ino() || held.dev() != metadata.dev() {
                 return Err(fail(8, "log_changed_during_open"));
             }
@@ -2213,6 +2269,50 @@ mod concise_error_tests {
         assert!(rendered.contains("linename.fieldname: ready"));
         assert!(!rendered.contains('\r') && !rendered.contains('\u{1b}'));
         assert_eq!(rendered.lines().count(), 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edited_json_reads_atomic_editor_replacement_and_rejects_special_files() {
+        use std::{
+            ffi::CString,
+            os::unix::{ffi::OsStrExt, fs::symlink},
+        };
+
+        let directory = tempfile::tempdir().unwrap();
+        let original = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        let replacement = directory.path().join("replacement.json");
+        std::fs::write(&replacement, br#"{"name":"edited"}"#).unwrap();
+        std::fs::rename(&replacement, original.path()).unwrap();
+        assert_eq!(
+            read_edited_json(original.path()).unwrap(),
+            json!({"name":"edited"})
+        );
+
+        std::fs::write(
+            original.path(),
+            vec![b'x'; MAX_EDITED_JSON_BYTES as usize + 1],
+        )
+        .unwrap();
+        assert_eq!(
+            read_edited_json(original.path()).unwrap_err().code,
+            "edited_configuration_too_large"
+        );
+
+        std::fs::remove_file(original.path()).unwrap();
+        symlink("/dev/null", original.path()).unwrap();
+        assert_eq!(
+            read_edited_json(original.path()).unwrap_err().code,
+            "unsafe_or_corrupt_state"
+        );
+
+        std::fs::remove_file(original.path()).unwrap();
+        let path = CString::new(original.path().as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        assert_eq!(
+            read_edited_json(original.path()).unwrap_err().code,
+            "unsafe_or_corrupt_state"
+        );
     }
 
     #[test]
