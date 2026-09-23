@@ -321,6 +321,11 @@ pub fn redact(value: &mut Value) {
     match value {
         Value::Object(map) => {
             for (key, v) in map.iter_mut() {
+                let name: String = key
+                    .chars()
+                    .filter(char::is_ascii_alphanumeric)
+                    .map(|character| character.to_ascii_lowercase())
+                    .collect();
                 if [
                     "password",
                     "token",
@@ -328,12 +333,29 @@ pub fn redact(value: &mut Value) {
                     "secret",
                     "enrollment",
                     "certificate",
+                    "apikey",
+                    "privatekey",
                 ]
                 .iter()
-                .any(|k| key.contains(k))
-                    && (v.is_string() || v.is_null())
+                .any(|k| name.contains(k))
                 {
-                    *v = json!({"configured":!v.is_null() && v.as_str().is_none_or(|s|!s.is_empty())});
+                    let configured = match &*v {
+                        Value::Null => Some(false),
+                        Value::String(value) => Some(!value.is_empty()),
+                        Value::Array(value) => Some(!value.is_empty()),
+                        Value::Object(value) => Some(
+                            value
+                                .get("configured")
+                                .and_then(Value::as_bool)
+                                .filter(|_| value.len() == 1)
+                                .unwrap_or(!value.is_empty()),
+                        ),
+                        Value::Number(_) => Some(true),
+                        Value::Bool(_) => None,
+                    };
+                    if let Some(configured) = configured {
+                        *v = json!({"configured": configured});
+                    }
                 } else {
                     redact(v);
                 }
@@ -1721,7 +1743,7 @@ impl Service {
             {
                 let value: Value = serde_json::from_slice(line).map_err(storage_error)?;
                 let message = value["MESSAGE"].as_str().unwrap_or("");
-                // Legacy text logs may predate CLI redaction. Suppress secret-bearing lines.
+                // Suppress text log lines that contain sensitive terms.
                 let lower = message.to_ascii_lowercase();
                 let message = if [
                     "password",
@@ -2112,6 +2134,43 @@ mod concise_error_tests {
         assert!(!detail.contains('\n') && !detail.contains('\t'));
         assert!(detail.chars().count() <= MAX_ERROR_DETAIL_CHARS);
         assert!(detail.ends_with('…'));
+    }
+
+    #[test]
+    fn redaction_covers_nested_and_mixed_case_secret_fields() {
+        let mut result = json!({
+            "accessToken": "token-value",
+            "ApiKey": {"value": "nested-key"},
+            "api-key": "hyphenated-key",
+            "pairingToken": 123456,
+            "password": null,
+            "passwordConfigured": false,
+            "passwordStatus": {"configured": false},
+            "credential": {"value": "nested-credential"},
+            "certificateChain": ["certificate-bytes"],
+            "status": "running",
+            "state": [{"privateKey": "private-value"}]
+        });
+        redact(&mut result);
+        let output = result.to_string();
+        for secret in [
+            "token-value",
+            "nested-key",
+            "hyphenated-key",
+            "nested-credential",
+            "certificate-bytes",
+            "private-value",
+        ] {
+            assert!(!output.contains(secret));
+        }
+        assert_eq!(result["accessToken"], json!({"configured": true}));
+        assert_eq!(result["ApiKey"], json!({"configured": true}));
+        assert_eq!(result["api-key"], json!({"configured": true}));
+        assert_eq!(result["pairingToken"], json!({"configured": true}));
+        assert_eq!(result["password"], json!({"configured": false}));
+        assert_eq!(result["passwordConfigured"], false);
+        assert_eq!(result["passwordStatus"], json!({"configured": false}));
+        assert_eq!(result["status"], "running");
     }
 
     #[test]
