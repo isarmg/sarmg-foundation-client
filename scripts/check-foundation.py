@@ -18,6 +18,23 @@ PACKAGES = {
 }
 
 
+def check_dependencies(manifest: dict, directory: Path, workspace: dict) -> None:
+    version = workspace["package"]["version"]
+    for name, requirement in _walk_dependencies(manifest):
+        source_directory = directory
+        if isinstance(requirement, dict) and requirement.get("workspace") is True:
+            requirement = workspace["dependencies"][name]
+            source_directory = ROOT
+        package = requirement.get("package", name) if isinstance(requirement, dict) else name
+        if package.startswith("sarmg-") and package not in PACKAGES:
+            raise ConformanceError(f"{directory}: dependency outside client platform: {package}")
+        if isinstance(requirement, dict) and "path" in requirement:
+            dependency = (source_directory / requirement["path"]).resolve(strict=True)
+            expected = ROOT / "rust/crates" / package
+            if package not in PACKAGES or dependency != expected or requirement.get("version") != f"={version}":
+                raise ConformanceError(f"{directory}: dependency escapes client workspace or lacks exact version")
+
+
 def check() -> dict:
     profiles, _ = load_profiles(ROOT)
     cargo = _toml(ROOT / "Cargo.toml")
@@ -27,7 +44,7 @@ def check() -> dict:
         raise ConformanceError("workspace: client package set differs")
     if set(path.parent.name for path in (ROOT / "rust/crates").glob("*/Cargo.toml")) != PACKAGES:
         raise ConformanceError("workspace: unregistered crate")
-    version = workspace["package"]["version"]
+    check_dependencies(cargo, ROOT, workspace)
     if workspace["package"]["repository"] != "https://github.com/isarmg/sarmg-foundation-client":
         raise ConformanceError("workspace: repository identity differs")
     for member in sorted(members):
@@ -37,16 +54,7 @@ def check() -> dict:
             raise ConformanceError(f"{path}: package identity differs")
         if (path / "LICENSE").read_bytes() != (ROOT / "LICENSE").read_bytes():
             raise ConformanceError(f"{path}: license differs")
-        for name, requirement in _walk_dependencies(manifest):
-            if isinstance(requirement, dict) and requirement.get("workspace") is True:
-                requirement = workspace["dependencies"][name]
-            package = requirement.get("package", name) if isinstance(requirement, dict) else name
-            if package.startswith("sarmg-") and package not in PACKAGES:
-                raise ConformanceError(f"{path}: dependency outside client platform: {package}")
-            if isinstance(requirement, dict) and "path" in requirement:
-                dependency = (path / requirement["path"]).resolve(strict=True)
-                if not dependency.is_relative_to(ROOT / "rust/crates") or requirement.get("version") != f"={version}":
-                    raise ConformanceError(f"{path}: dependency escapes client workspace or lacks exact version")
+        check_dependencies(manifest, path, workspace)
     schema = json.loads((ROOT / "schemas/sarmg-client.schema.json").read_text())
     if set(schema["properties"]["components"]["items"]["properties"]["profile"]["enum"]) != set(profiles):
         raise ConformanceError("manifest schema Profile enum differs")

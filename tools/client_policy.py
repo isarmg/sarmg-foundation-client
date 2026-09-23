@@ -202,7 +202,7 @@ def verify_manifest(product_root: Path, foundation_root: Path) -> dict[str, Any]
         if component_id in component_ids:
             raise ConformanceError(f"{context}.id: duplicate component")
         component_ids.add(component_id)
-        if profile_id not in profiles:
+        if not isinstance(profile_id, str) or profile_id not in profiles:
             raise ConformanceError(f"{context}.profile: unknown Profile {profile_id!r}")
         profile = profiles[profile_id]
         declared = set(_string_list(component["capabilities"], f"{context}.capabilities", allow_empty=False))
@@ -335,6 +335,13 @@ def _walk_dependencies(value: Any, key: str = "") -> Iterable[tuple[str, Any]]:
         return
     if key in {"dependencies", "dev-dependencies", "build-dependencies"}:
         yield from value.items()
+    elif key == "patch":
+        for registry in value.values():
+            if isinstance(registry, dict):
+                yield from registry.items()
+    elif key == "replace":
+        for specification, requirement in value.items():
+            yield specification.split(":", 1)[0], requirement
     for child, nested in value.items():
         if isinstance(nested, dict):
             yield from _walk_dependencies(nested, child)

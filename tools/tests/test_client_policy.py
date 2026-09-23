@@ -86,6 +86,36 @@ class ClientPolicyTests(unittest.TestCase):
             with self.assertRaisesRegex(ConformanceError, "escapes product"):
                 verify_manifest(root, ROOT)
 
+    def test_dependency_overrides_obey_the_client_boundary(self) -> None:
+        component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            (product / "src").mkdir()
+            (product / "sarmg-client.toml").write_text(
+                VALID_MANIFEST.replace('source_roots = ["."]', 'source_roots = ["src"]') + component
+            )
+            for dependency in [
+                '[patch.crates-io]\ninnocent={package="sarmg-admin-core",version="0.5.0"}',
+                '[replace]\n"sarmg-admin-core:0.5.0"={version="0.5.0"}',
+                '[workspace.dependencies]\ninnocent={package="sarmg-admin-core",version="0.5.0"}',
+            ]:
+                with self.subTest(dependency=dependency):
+                    (product / "Cargo.toml").write_text(dependency)
+                    with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                        verify_source(product, ROOT)
+
+    def test_invalid_profile_types_produce_conformance_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            for value in ['[]', '{}', 'true', '1']:
+                with self.subTest(value=value):
+                    (product / "sarmg-client.toml").write_text(VALID_MANIFEST + (
+                        '\n[[components]]\nid="mobile"\nprofile=' + value +
+                        '\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
+                    ))
+                    with self.assertRaisesRegex(ConformanceError, "unknown Profile"):
+                        verify_manifest(product, ROOT)
+
     def test_client_web_stays_in_client_policy(self) -> None:
         component = '\n[[components]]\nid="client"\nprofile="desktop-client"\ncapabilities=["private-state", "bounded-spool", "https-delivery", "doctor", "local-web-management"]\n[components.client_limits]\nmax_record_bytes=1\nmax_spool_bytes=1\nmax_spool_entries=1\n'
         with tempfile.TemporaryDirectory() as directory:
