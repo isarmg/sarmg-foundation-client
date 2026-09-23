@@ -1,11 +1,11 @@
-# 拆分来源
+# 仓库与发布来源
 
-2026-09-05 按项目所有者要求，从原 Foundation 工作区拆分为独立 Client 仓库。
-原仓库更名为 `sarmg-foundation-server`，保留原 Git 历史及未提交工作；本仓单独初始化 Git，未复制原仓库 `.git`。
+Sarmg Foundation Client 是独立构建、测试和发布的 Client 基础仓库。
+源码包版本来自根 `Cargo.toml` 的 `workspace.package.version`；发布流程核对
+Git tag、当前提交与干净工作树，并从该提交生成带校验和的源码归档。
 
-`sarmg-client-runtime`、`sarmg-mobile-ffi`、客户端 Profile、Spool/FFI 规范和 Header 工具由原工作区迁入。
-文件安全、错误类型、秘密类型和密钥封装根据客户端需要提取为独立命名的 Client 包，携带原 Apache-2.0 许可证与测试。曾提取的共享 HTTP 包现已删除，产品直接使用平台标准 HTTPS 实现。
-提取对象是当时的工作区，包含尚未提交的改造；不能用原 `v0.5.0` tag 冒充这些文件的完整发布来源。
+消费者同时固定精确 crate 版本和完整 Git revision。发布记录位于 `docs/releases/`，
+当前 API、Profile 与边界以本仓库源码和现行文档为准。
 
-两个仓库分别维护当前行为；任何影响通用安全机制的修复，都应检查是否同时影响另一侧并分别验收。
-本记录不是跨版本兼容承诺，也不是不可变制品发布记录。
+Foundation Client 与 Foundation Server 互不依赖。通用安全机制分别由所属仓库维护；
+涉及两侧的修复需分别验证并发布，产品接入和业务验收由各自仓库负责。

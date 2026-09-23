@@ -2,9 +2,8 @@
 
 Foundation owns ABI revision 2, panic containment, input and output bounds,
 generational handles, result allocation/release, JNI Unicode validation and
-exception classes. Media owns Client DTOs, SQLite operations and the current
-business state identity. There is no previous ABI reader, symbol alias, NUL input
-scanner or thread-local error interface.
+exception classes. Products own DTOs, storage operations and business state
+identity. ABI 2 uses explicit input lengths and caller-provided result storage.
 
 ## C contract
 
@@ -51,9 +50,7 @@ remain independent of the ABI revision.
 ## Verification and remaining acceptance
 
 Rust tests cover lengths, UTF-8, output ownership/budgets, stale/exhausted handles,
-panic status and subprocess log redaction. Media's real Linux dynamic library is
-called from a compiled C host using the generated header. The JNI suite
-passes on a real Linux JVM, including a test-only Rust panic injection;
-iOS simulator tests are supplied but target-native execution must be recorded
-separately. Passing host Rust/C/JVM checks is not completion of Android/iOS acceptance
-or the immutable release gate.
+panic status and subprocess log redaction. Products validate their exported dynamic
+libraries with generated C bindings, a real JVM and the target mobile runtime.
+Android, iOS and iOS Simulator execution evidence is recorded separately from host
+Rust/C/JVM checks and is required for the corresponding product release.

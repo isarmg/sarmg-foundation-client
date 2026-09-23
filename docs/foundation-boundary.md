@@ -16,10 +16,12 @@
 4. 至少存在明确的跨产品复用场景；单产品需求先留在产品仓库，成熟后再提取。
 5. Foundation 成为唯一实现源后，消费者通过不可变发布包使用它，不复制源码快照。
 
-本轮终端输入修复符合该边界：它只处理控制终端、输入上限、绝对期限和秘密清零，已由 Host、Sunshine、Sentinel 三个 Client 使用。`pairing_*` 的 HTTP 含义、用户文案和恢复步骤不符合该边界，必须由定义相应协议的产品提供。`sarmg-client-cli` 只负责稳定错误信封，并通过 `ProductErrorCatalog` 接收产品展示信息。
+终端输入 API 只处理控制终端、输入上限、绝对期限和秘密清零，可由多个桌面 Client 复用。`pairing_*` 的 HTTP 含义、用户文案和恢复步骤不符合该边界，必须由定义相应协议的产品提供。`sarmg-client-cli` 只负责稳定错误信封，并通过 `ProductErrorCatalog` 接收产品展示信息。
 
-Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只要求产品提供 HTTPS 投递 Adapter；Spool、Foundation 私有状态、Doctor、完整服务生命周期和受保护终端输入均按实际采用情况显式声明。实时流 Client 不需要为了通过清单而虚假声明批量 Spool。
+Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只要求产品提供 HTTPS 投递 Adapter；Spool、Foundation 私有状态、Doctor、完整服务生命周期和受保护终端输入均按实际采用情况显式声明。实时流 Client 根据实际采用的机制声明能力。
 
-通用机制还必须由实际层级承载。`sarmg-secure-xml` 只提供与产品无关的解析预算，唯一消费者是 Sentinel Client，因此归入 Client Foundation；ONVIF SOAP、命名空间、设备字段和具体预算值仍由 Sentinel 定义。Client 不得反向依赖 Foundation Server。
+通用机制还必须由实际层级承载。`sarmg-secure-xml` 提供 Client 侧与产品无关的解析预算；业务 XML 协议、命名空间、设备字段和具体预算值由产品定义。Client 不得反向依赖 Foundation Server。
 
 Server 侧内容块也只保留在 `@sarmg/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。
+
+仓库检查覆盖根清单、workspace 继承、目标平台依赖以及 Cargo `patch`/`replace`。Client 内部 path 依赖必须指向登记的 crate，并与工作区版本精确匹配。消费者检查同时扫描其完整目录中的 Cargo 清单，不能通过 `source_roots` 排除依赖检查。

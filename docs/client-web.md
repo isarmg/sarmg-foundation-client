@@ -7,11 +7,9 @@ Web 按被管理对象划分，不按 React、原生 JavaScript、浏览器或�
 - Client 为本机页面提供 loopback HTTP，并不使该客户端进程成为受 Server target 限制的业务 Server。
 - 两侧不得通过导入另一侧基础仓库的认证、Web shell 或 Runtime 来隐式混合行为；公共安全修复须分别评估两侧。
 
-## 当前消费者
+## 能力与接入
 
-Host、Media、Sunshine、Sentinel 和 Dufs 的管理 Web 都管理各自的 Server，保持 Server Profile；具体目录
-由产品仓库决定，不能假定都叫 `clients/web`。当前已登记的 Client 产品没有本机 Web 管理入口，Host
-Client 也已移除旧 Windows 托盘和 loopback 配置页。
+产品按被管理对象选择 Profile，并在自己的仓库记录页面、路由及目标平台验收。目录名称不决定管理归属。
 
 桌面客户端将来若增加本机 Web，应通过可选 `local-web-management` 能力声明这一形态。本地 Web Adapter 由产品拥有，
 不声称已提炼出通用 Client Web UI 包。其本地一次性入口凭证、loopback Host/Origin、Bearer 会话、

@@ -27,9 +27,7 @@ can be cleaned after acquiring the lock; arbitrary `.tmp` files are preserved an
 cause failure. Quarantine uses no-clobber publication and retains the original
 container bytes without replacing existing evidence. The finite
 `QuarantineReason` selects `.bad` for corruption/invalid payload and `.identity`
-for a local delivery identity mismatch. Both are current quarantine categories,
-not alternate readers or historical container formats. Neither rewrites the
-container or exposes a quarantined ID to ordinary ACK.
+for a local delivery identity mismatch. Both categories preserve the container and exclude its ID from ordinary ACK.
 
 ## Limits and I/O
 
@@ -61,16 +59,15 @@ the identity subset of `quarantined_entries`. Unknown names, nonempty lock files
 unsafe entries fail closed. A writer's active temporary or concurrent removal can
 cause a transient inspection error; the result is not a transactional snapshot.
 This inventory does not verify payload checksums and must not be presented as a
-full data-integrity check. Host status and read-only doctor consume this API.
+full data-integrity check.
 
 ## Delivery and shutdown
 
 `DeliveryWorker<ClientDeliveryDriver>` owns the delivery/recovery loop, coalescing
 capacity-one notifications, deadlines, retry state, authorization pause, local
 queue failure tracking and shutdown. It does not know any product DTO, API route,
-pairing phase or credential file format. Host now uses this worker; its driver
-only interprets pairing progress, installs Reporter snapshots and classifies
-validated protocol failures.
+pairing phase or credential file format. The product driver interprets recovery
+progress, installs complete credential snapshots and classifies protocol failures.
 
 Recovery and delivery futures are owned directly, not detached tasks. Sampling
 wake edges and recovery timer events never discard an in-flight request. Only an
@@ -79,7 +76,7 @@ restarts delivery; a stable report ID makes an unknown remote outcome retryable.
 An authorization failure preserves queued reports and pauses delivery until
 renewal. Ordinary wakes cannot bypass authorization or active backoff. Shutdown,
 a lost shutdown controller or closed sampling notifications cancel both owned
-futures. Host's optional OTLP worker is aborted by its driver's Drop.
+futures. Product drivers own the shutdown of any auxiliary output workers.
 
 `deliver_batch` is shared by the daemon and the explicit one-shot path. It handles
 at most 32 records, including permanently rejected and isolated records, then yields the batch
@@ -87,7 +84,7 @@ boundary to its caller. Protocol adapters distinguish a definitive content
 rejection from transient failure and credential rejection. Only definitive
 content rejection authorizes discarding that record; a transient/authorization
 error retains it. The adapter returns the finite `FailureDisposition`, with
-Retain, Discard or Quarantine(reason); the old boolean-only disposition is removed.
+Retain, Discard or Quarantine(reason).
 A typed local identity mismatch must be isolated, not discarded. The queue's
 required `quarantine` operation must preserve original bytes, and its failure
 stops the batch without a callback, fallback ACK or next send. The isolation
@@ -120,14 +117,10 @@ Worker tests cover retry deadlines, repeated wake edges, recovery events during
 an in-flight send, authorization pause/renewal, snapshot cancellation, shutdown,
 closed controllers, invalid polling delays and persistent/reset local failures.
 Batch tests cover ack-before-export, failed ack, permanent rejection, the batch
-budget and cancellation retaining the head. Host has a real local HTTPS test
-that withholds the response while issuing ten sampling notifications and then
-requires the durable queue to drain through the shared worker.
-
-Host now uses shared Unix configuration/state handles and the
-[credential transaction interface](credential-transactions.md). Windows/macOS
-native filesystem and service-lifecycle evidence must be recorded separately;
-Linux tests do not replace those platform acceptance runs.
+budget and cancellation retaining the head. Products validate their transport and
+[credential transaction adapters](credential-transactions.md) with integration
+tests. Windows/macOS native filesystem and service-lifecycle evidence is recorded
+separately from Linux tests.
 
 ## Delivery session lifetime
 
@@ -139,16 +132,12 @@ the delivery session lock. Existing unsafe directory/lock metadata is rejected,
 not repaired. The lock inode remains after close and must not be deleted to
 force a second running instance.
 
-Host Run, Once and Doctor-with-delivery now acquire the session before identity
-loading and sampler initialization. Its Spool borrows the session's held
-directory when creating the child queue and retains an `Arc<ClientSession>`;
-clones keep the delivery exclusion alive. Standalone Host Spool opening acquires the
-same session, and invalid Spool limits are rejected before creating state.
-Status, read-only Doctor, Probe and Pair do not acquire this delivery lock.
+Products acquire the session before loading delivery identity or starting
+collection. Use its held directory to create the child queue and retain session
+ownership for the complete delivery lifetime, including shared queue clones.
+Read-only status and diagnostic commands do not acquire this lock.
 
-The Spool's own lock still protects the queue namespace, including standalone
-Foundation Spool callers. It has a different scope from the state-root delivery
-session; neither is an old-version compatibility path. Tests cover real process
-contention/release, unsafe lock rejection, clone lifetime, pairing concurrency,
-held-directory rebinding and the actual Host command boundary. These are Linux
-tests, not Windows/macOS native filesystem validation.
+The Spool's own lock protects its queue namespace, including callers that do not
+use a state-root delivery session. Tests cover real process contention/release,
+unsafe lock rejection and held-directory rebinding. Product integration tests
+validate command lifetimes and concurrency with credential transactions.

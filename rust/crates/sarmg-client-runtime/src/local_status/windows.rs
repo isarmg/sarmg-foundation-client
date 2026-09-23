@@ -175,10 +175,10 @@ pub(super) fn publish(
                 let mut pid = 0;
                 // The protected pipe DACL authorizes only SYSTEM, elevated
                 // administrators and LocalService. Windows already checked it
-                // when the client connected. LocalService cannot query an
-                // administrator's process token; that redundant check rejects
-                // authorized clients. The reader still authenticates our image,
-                // service identity and binding before accepting a response.
+                // when the client connected. Client authorization uses that
+                // DACL and requires no process-token query by LocalService.
+                // The reader authenticates our image, service identity and
+                // binding before accepting a response.
                 if GetNamedPipeClientProcessId(pipe.as_raw_handle(), &mut pid) != 0 {
                     let mut bytes = [0u8; 14];
                     let mut count = 0;

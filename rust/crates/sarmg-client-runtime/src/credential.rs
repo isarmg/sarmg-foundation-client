@@ -5,8 +5,7 @@ use std::sync::Arc;
 use sarmg_client_secret::SecretString;
 use serde::{Deserialize, Serialize};
 
-/// The only current durable authorization states. Unknown spellings are errors,
-/// never an implicit authorization or a historical compatibility state.
+/// Durable authorization states. Deserialization rejects unknown spellings.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum CredentialAuthorization {
     #[serde(rename = "authorized")]
@@ -34,7 +33,7 @@ pub enum CredentialMutation {
 /// A short, synchronous credential transaction, not an asynchronous network
 /// operation. Implementors must retain their exclusive storage lock throughout
 /// each call and serialize against every writer of the same credential state.
-/// No operation may silently repair invalid storage or accept historical data.
+/// Invalid storage or unsupported data returns an error without repair.
 ///
 /// Products own revision identities, prepared rotation journals, pairing wire,
 /// and crash recovery. The interface does not freeze any one product's protocol.
