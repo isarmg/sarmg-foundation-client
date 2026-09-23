@@ -480,8 +480,9 @@ fn render_human_fields(prefix: &str, value: &Value, lines: &mut Vec<String>, dep
                 if lines.len() >= 17 {
                     break;
                 }
+                let key = sanitize(key);
                 let name = if prefix.is_empty() {
-                    key.clone()
+                    key
                 } else {
                     format!("{prefix}.{key}")
                 };
@@ -2200,6 +2201,18 @@ mod concise_error_tests {
         assert!(rendered.contains("queue.pending: 2"));
         assert!(rendered.contains("items: 2 item(s)"));
         assert!(!rendered.contains('{'));
+    }
+
+    #[test]
+    fn human_success_removes_control_characters_from_dynamic_field_names() {
+        let rendered = human_success(
+            "sample-client",
+            "status",
+            &json!({"line\nname": {"field\r\u{1b}name": "ready"}}),
+        );
+        assert!(rendered.contains("linename.fieldname: ready"));
+        assert!(!rendered.contains('\r') && !rendered.contains('\u{1b}'));
+        assert_eq!(rendered.lines().count(), 2);
     }
 
     #[test]
