@@ -222,7 +222,7 @@ pub fn duration(raw: &str) -> Result<Duration> {
     };
     let ms = n
         .parse::<u64>()
-        .map_err(input_error)?
+        .map_err(|_| fail(2, "invalid_timeout"))?
         .checked_mul(m)
         .ok_or_else(|| fail(2, "invalid_timeout"))?;
     if ms == 0 || ms > 3_600_000 {
@@ -872,19 +872,16 @@ pub fn stdin_document<T: serde::de::DeserializeOwned + Send + 'static>(
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let result = (|| {
-            let mut bytes = Vec::new();
+            let mut bytes = Zeroizing::new(Vec::new());
             io::stdin()
                 .lock()
                 .take(65537)
                 .read_to_end(&mut bytes)
                 .map_err(input_error)?;
             if bytes.len() > 65536 {
-                bytes.fill(0);
                 return Err(fail(2, "input_too_large"));
             }
-            let result = serde_json::from_slice(&bytes).map_err(input_error);
-            bytes.fill(0);
-            result
+            serde_json::from_slice(&bytes).map_err(input_error)
         })();
         let _ = tx.send(result);
     });
@@ -1047,26 +1044,20 @@ fn unix_terminal_input(
         if remaining.is_zero() {
             break Err(fail(9, "interactive_input_timeout"));
         }
-        let mut readable: libc::fd_set = unsafe { std::mem::zeroed() };
-        unsafe {
-            libc::FD_ZERO(&mut readable);
-            libc::FD_SET(fd, &mut readable);
-        }
-        let mut timeout = libc::timeval {
-            tv_sec: remaining.as_secs().min(libc::time_t::MAX as u64) as libc::time_t,
-            tv_usec: remaining.subsec_micros() as libc::suseconds_t,
+        let mut readable = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
         };
-        let ready = unsafe {
-            libc::select(
-                fd + 1,
-                &mut readable,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &mut timeout,
-            )
-        };
+        // Round up to preserve sub-millisecond deadlines. Poll accepts any
+        // valid descriptor and does not impose a fixed descriptor-set bound.
+        let timeout = remaining
+            .as_millis()
+            .saturating_add(1)
+            .min(i32::MAX as u128) as i32;
+        let ready = unsafe { libc::poll(&mut readable, 1, timeout) };
         if ready == 0 {
-            break Err(fail(9, "interactive_input_timeout"));
+            continue;
         }
         if ready < 0 {
             let error = std::io::Error::last_os_error();
@@ -2039,12 +2030,24 @@ mod concise_error_tests {
             return;
         };
         let (max_bytes, timeout) = match mode.as_str() {
-            "success" => (64, Duration::from_secs(2)),
+            "success" | "high-fd" => (64, Duration::from_secs(2)),
             "too-large" => (4, Duration::from_secs(2)),
             "cancelled" => (64, Duration::from_secs(2)),
             "timeout" => (64, Duration::from_millis(100)),
             _ => panic!("unknown prompt test mode"),
         };
+        let mut descriptors = Vec::new();
+        if mode == "high-fd" {
+            use std::os::fd::AsRawFd;
+            loop {
+                let file = std::fs::File::open("/dev/null").unwrap();
+                let fd = file.as_raw_fd();
+                descriptors.push(file);
+                if fd >= libc::FD_SETSIZE as i32 {
+                    break;
+                }
+            }
+        }
         let result = prompt_secret("Authorization code", max_bytes, Instant::now() + timeout);
         match result {
             Ok(value) => println!("RESULT:{}", value.len()),
@@ -2053,6 +2056,34 @@ mod concise_error_tests {
                 error.code,
                 error.detail.as_deref().unwrap_or("no_detail")
             ),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unix_secret_prompt_accepts_descriptors_above_fd_setsize() {
+        let (success, _) = run_prompt_child(Some(b"private-value\n"), "high-fd");
+        assert!(success.contains("RESULT:13"), "transcript: {success:?}");
+        assert!(!success.contains("private-value"));
+    }
+
+    #[test]
+    fn timeout_values_share_one_error_contract() {
+        for value in [
+            "",
+            "invalid",
+            "1.5s",
+            "-1s",
+            "0",
+            "3601s",
+            "18446744073709551616",
+        ] {
+            let error = duration(value).unwrap_err();
+            assert_eq!(error.code, "invalid_timeout", "value: {value:?}");
+            assert_eq!(error.exit, 2);
+        }
+        for (value, millis) in [("1ms", 1), ("2", 2000), ("3s", 3000), ("60m", 3_600_000)] {
+            assert_eq!(duration(value).unwrap(), Duration::from_millis(millis));
         }
     }
 
