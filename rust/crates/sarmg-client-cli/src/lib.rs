@@ -94,7 +94,9 @@ impl Args {
     /// Parse common options plus the product options declared by the caller.
     ///
     /// Product option names deliberately stay out of Foundation: a product
-    /// supplies only its valued and boolean option declarations.
+    /// supplies only its valued and boolean option declarations. Product
+    /// adapters validate the meaning of those values, including path policies,
+    /// before dispatching commands. Common config/state paths are absolute.
     pub fn parse(
         raw: Vec<String>,
         valued_product_options: &[&str],
@@ -162,12 +164,7 @@ impl Args {
                 .map(String::as_str)
                 .unwrap_or("60s"),
         )?;
-        for name in ["--config", "--state"].into_iter().chain(
-            valued_product_options
-                .iter()
-                .copied()
-                .filter(|name| matches!(*name, "--file" | "--bootstrap")),
-        ) {
+        for name in ["--config", "--state"] {
             if let Some(value) = options.get(name) {
                 absolute(Path::new(value))?;
             }
@@ -2065,6 +2062,27 @@ mod concise_error_tests {
         let (success, _) = run_prompt_child(Some(b"private-value\n"), "high-fd");
         assert!(success.contains("RESULT:13"), "transcript: {success:?}");
         assert!(!success.contains("private-value"));
+    }
+
+    #[test]
+    fn product_options_keep_product_owned_value_validation() {
+        for name in ["--file", "--bootstrap"] {
+            let args =
+                Args::parse(vec![name.into(), "product-value".into()], &[name], &[]).unwrap();
+            assert_eq!(args.get(name), Some("product-value"));
+            assert_eq!(
+                absolute(Path::new(args.get(name).unwrap()))
+                    .unwrap_err()
+                    .code,
+                "absolute_path_required"
+            );
+        }
+        for name in ["--config", "--state"] {
+            let error = Args::parse(vec![name.into(), "relative-path".into()], &[], &[])
+                .err()
+                .expect("common paths must be absolute");
+            assert_eq!(error.code, "absolute_path_required");
+        }
     }
 
     #[test]

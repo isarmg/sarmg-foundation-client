@@ -25,3 +25,5 @@ Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只�
 Server 侧内容块也只保留在 `@sarmg/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。
 
 仓库检查覆盖根清单、workspace 继承、目标平台依赖以及 Cargo `patch`/`replace`。Client 内部 path 依赖必须指向登记的 crate，并与工作区版本精确匹配。消费者检查同时扫描其完整目录中的 Cargo 清单，不能通过 `source_roots` 排除依赖检查。
+
+`Args::parse` 解析通用选项以及产品显式声明的选项，仅为通用 `--config` 和 `--state` 验证绝对路径。产品选项的含义与路径要求由产品在命令执行前检查，可复用 `absolute`；Foundation 不依据产品选项名推断业务语义。
