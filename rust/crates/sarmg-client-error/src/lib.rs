@@ -11,7 +11,7 @@ pub const MAX_REQUEST_ID_BYTES: usize = 128;
 ///
 /// Codes are deliberately more restrictive than arbitrary strings so they can
 /// be used safely in logs, metrics and client dispatch. Product-specific codes
-/// may use `.` to form namespaces, for example `media.upload_conflict`.
+/// may use `.` to form namespaces, for example `sample.upload_conflict`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub struct ErrorCode(String);
@@ -295,8 +295,8 @@ mod tests {
     fn error_codes_are_bounded_machine_identifiers() {
         for valid in [
             "bad_request",
-            "media.upload_conflict",
-            "host-monitor.rate-limited",
+            "sample.upload_conflict",
+            "sample-product.rate-limited",
         ] {
             assert_eq!(valid.parse::<ErrorCode>().unwrap().as_str(), valid);
         }
