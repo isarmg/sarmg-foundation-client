@@ -1513,6 +1513,18 @@ impl Service {
         {
             let o = self.capture("sc.exe", &["query", self.name], timeout)?;
             let t = String::from_utf8_lossy(&o.stdout);
+            let exit_code = |key: &str| {
+                t.lines().find_map(|line| {
+                    line.trim()
+                        .strip_prefix(key)?
+                        .trim()
+                        .strip_prefix(':')?
+                        .split_whitespace()
+                        .next()?
+                        .parse::<u32>()
+                        .ok()
+                })
+            };
             let config = self.capture("sc.exe", &["qc", self.name], timeout)?;
             let config = String::from_utf8_lossy(&config.stdout);
             let registration = config.lines().find_map(|line| {
@@ -1522,7 +1534,7 @@ impl Service {
                     .map(str::trim)
             });
             Ok(
-                json!({"installed":o.status.success(),"state":if t.contains("RUNNING"){"running"}else if t.contains("STOPPED"){"stopped"}else{"unknown"},"startup":if config.contains("AUTO_START"){"automatic"}else if config.contains("DEMAND_START"){"manual"}else if config.contains("DISABLED"){"disabled"}else{"unknown"},"registration":registration}),
+                json!({"installed":o.status.success(),"state":if t.contains("RUNNING"){"running"}else if t.contains("STOPPED"){"stopped"}else{"unknown"},"startup":if config.contains("AUTO_START"){"automatic"}else if config.contains("DEMAND_START"){"manual"}else if config.contains("DISABLED"){"disabled"}else{"unknown"},"registration":registration,"win32_exit_code":exit_code("WIN32_EXIT_CODE"),"service_exit_code":exit_code("SERVICE_EXIT_CODE")}),
             )
         }
         #[cfg(target_os = "macos")]
@@ -1819,7 +1831,7 @@ impl Service {
                 return Err(fail(2, "invalid_log_since"));
             }
             let script = format!(
-                "$ErrorActionPreference='Stop'; $name=(Get-Service -Name '{}').DisplayName; $since=[DateTimeOffset]::Parse('{}').UtcDateTime; $items=@(Get-WinEvent -FilterHashtable @{{LogName='System';ProviderName='Service Control Manager';StartTime=$since}} -MaxEvents 1000 -ErrorAction SilentlyContinue | Where-Object {{$_.Properties.Count -gt 0 -and $_.Properties[0].Value -eq $name}} | Select-Object -First {} | ForEach-Object {{@{{observed_at=$_.TimeCreated.ToUniversalTime().ToString('o');cursor=[string]$_.RecordId;message=$_.Message}}}}); ConvertTo-Json -InputObject $items -Compress",
+                "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $name=(Get-Service -Name '{}').DisplayName; $since=[DateTimeOffset]::Parse('{}').UtcDateTime; $items=@(Get-WinEvent -FilterHashtable @{{LogName='System';ProviderName='Service Control Manager';StartTime=$since}} -MaxEvents 1000 -ErrorAction SilentlyContinue | Where-Object {{$_.Properties.Count -gt 0 -and $_.Properties[0].Value -eq $name}} | Select-Object -First {} | ForEach-Object {{@{{observed_at=$_.TimeCreated.ToUniversalTime().ToString('o');cursor=[string]$_.RecordId;message=$_.Message}}}}); ConvertTo-Json -InputObject $items -Compress",
                 self.name, since, tail
             );
             let output = self.capture(
@@ -1830,8 +1842,7 @@ impl Service {
             if !output.status.success() {
                 return Err(fail(3, "logs_unavailable"));
             }
-            let mut entries: Vec<Value> =
-                serde_json::from_slice(&output.stdout).map_err(storage_error)?;
+            let mut entries = windows_log_entries(&output.stdout)?;
             let cursor = args
                 .get("--log-cursor")
                 .and_then(|c| c.parse::<u64>().ok())
@@ -1926,6 +1937,15 @@ impl Service {
     }
 }
 
+#[cfg(any(windows, test))]
+fn windows_log_entries(bytes: &[u8]) -> Result<Vec<Value>> {
+    // Windows PowerShell uses the console code page for redirected output unless
+    // the query explicitly selects UTF-8. A broken event response is a logging
+    // failure; it says nothing about the product's protected configuration.
+    serde_json::from_slice(bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes))
+        .map_err(|_| fail(6, "logs_unavailable").with_detail("invalid Windows Event Log response"))
+}
+
 pub fn follow_logs<C: ProductErrorCatalog + ?Sized>(
     product: &str,
     service: &Service,
@@ -1976,6 +1996,28 @@ fn log_message(message: &str) -> String {
 #[cfg(test)]
 mod concise_error_tests {
     use super::*;
+
+    #[test]
+    fn windows_event_log_json_preserves_unicode_and_never_reports_state_corruption() {
+        let response = br#"[{"cursor":"42","message":"\u670d\u52a1\u5df2\u505c\u6b62"}]"#;
+        assert_eq!(
+            windows_log_entries(response).unwrap()[0]["message"],
+            "服务已停止"
+        );
+        let mut with_bom = b"\xef\xbb\xbf".to_vec();
+        with_bom.extend_from_slice("[{\"message\":\"服务已停止\"}]".as_bytes());
+        assert_eq!(
+            windows_log_entries(&with_bom).unwrap()[0]["message"],
+            "服务已停止"
+        );
+        assert!(windows_log_entries(b"[]").unwrap().is_empty());
+        for invalid in [b"".as_slice(), b"not JSON", b"[{\"message\":\"\xff\"}]"] {
+            assert_eq!(
+                windows_log_entries(invalid).unwrap_err().code,
+                "logs_unavailable"
+            );
+        }
+    }
 
     #[cfg(unix)]
     fn run_prompt_child(input: Option<&[u8]>, mode: &str) -> (String, libc::tcflag_t) {
