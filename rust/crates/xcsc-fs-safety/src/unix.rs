@@ -1234,8 +1234,8 @@ mod tests {
                 "--exact",
                 "unix::tests::service_owner_subprocess",
             ])
-            .env("XCSS_FS_SERVICE_OWNER_TEST", &path)
-            .env("XCSS_FS_SERVICE_CONFIG_TEST", &config_path)
+            .env("XCSC_FS_SERVICE_OWNER_TEST", &path)
+            .env("XCSC_FS_SERVICE_CONFIG_TEST", &config_path)
             .uid(65534)
             .gid(65534)
             .output()
@@ -1306,7 +1306,7 @@ mod tests {
     #[test]
     #[ignore = "invoked with a service uid/gid by the administrative ownership test"]
     fn service_owner_subprocess() {
-        let config_path = std::env::var_os("XCSS_FS_SERVICE_CONFIG_TEST").unwrap();
+        let config_path = std::env::var_os("XCSC_FS_SERVICE_CONFIG_TEST").unwrap();
         let configuration = ConfigurationDirectory::open(config_path).unwrap();
         assert_eq!(
             configuration
@@ -1324,7 +1324,7 @@ mod tests {
                 .unwrap(),
             b"service-readable"
         );
-        let path = std::env::var_os("XCSS_FS_SERVICE_OWNER_TEST").unwrap();
+        let path = std::env::var_os("XCSC_FS_SERVICE_OWNER_TEST").unwrap();
         let directory = PrivateDirectory::open_existing(path).unwrap();
         let _lock =
             AdvisoryLock::acquire_waiting(&directory, &EntryName::new("transaction.lock").unwrap())

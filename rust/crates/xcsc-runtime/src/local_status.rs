@@ -1,7 +1,7 @@
 //! Read-only local status protocol. No configuration, secrets or control verbs.
 //!
 //! The operating-system bindings need narrowly scoped FFI for peer identity and
-//! named-pipe access. All unsafe code stays inside this Foundation-owned module.
+//! named-pipe access. All unsafe code stays inside this xcsc-owned module.
 #![allow(unsafe_code)]
 use serde_json::{Value, json};
 use std::{

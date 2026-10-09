@@ -49,11 +49,11 @@ mod macos {
     impl Agent {
         fn new() -> Self {
             let directory = tempfile::Builder::new()
-                .prefix("xcss-launchd-test-")
+                .prefix("xcsc-launchd-test-")
                 .tempdir()
                 .unwrap();
             let label = format!(
-                "org.sarmg.foundation-client-test.{}",
+                "org.sarmg.xcsc-test.{}",
                 directory.path().file_name().unwrap().to_str().unwrap()
             );
             let domain = format!("user/{}", rustix::process::getuid().as_raw());

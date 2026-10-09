@@ -2,7 +2,7 @@
 
 本轮采用 [Rust 1.99.0 正式版](https://blog.rust-lang.org/2026/10/01/Rust-1.99.0/)。现有工具链已是截至 2026-10-07 的最新稳定版，因此保持精确版本，不改为 nightly。Tokio 使用经过本轮构建和行为测试的稳定 `~1.53.2`；版本依据见 [上游发布页](https://github.com/tokio-rs/tokio/releases/tag/tokio-1.53.2)。AES-GCM 0.11.1、HKDF 0.13、Rustix 1.1.5、JNI 0.22.4 继续保留同一代稳定 API，libc、UUID 与 zeroize 提升到当前兼容补丁，实际解析及校验和由根 Cargo.lock 固定。
 
-Rust 工作区遵循公共库同族的 `rust/crates/<包名>/` 布局；只保留根锁文件。CLI 根模块负责参数、错误和输出组合，`terminal.rs` 负责有界控制终端输入与模式恢复，`elevation.rs` 负责 Windows UAC/句柄，`service.rs` 负责系统服务与共享进程捕获，`tail.rs` 负责受预算约束的日志尾读取。产品机制不反向进入 Foundation。
+Rust 工作区遵循公共库同族的 `rust/crates/<包名>/` 布局；只保留根锁文件。CLI 根模块负责参数、错误和输出组合，`terminal.rs` 负责有界控制终端输入与模式恢复，`elevation.rs` 负责 Windows UAC/句柄，`service.rs` 负责系统服务与共享进程捕获，`tail.rs` 负责受预算约束的日志尾读取。产品机制不反向进入 xcsc。
 
 CLI 已删除 crate 级 `allow(unsafe_code)`。工作区的 `unsafe_code = deny` 仍有效，仅 `terminal`、Windows `elevation` 与构造真实终端的测试局部允许。拆分只迁移既有原生调用，没有引入新的 unsafe。其必要性及前置条件沿用 [逐函数记录](unsafe-review-0.10.0.md)：信号/控制终端、UAC、ACL/Token/SID、平台本机对端身份以及 C ABI 原始输入与结果所有权均是标准库无等价功能的边界。业务逻辑、服务进程捕获与普通文件字节 I/O 使用安全 API。
 
@@ -24,16 +24,16 @@ macOS 的成功 `bootout` 与后续卸载观察共享原操作 deadline：只有
 
 候选准备发行；正式状态以 Git tag、最终 Source 工作流和 Release 产物为准。Rust 1.99.0 是截至 2026-10-07 的当前正式版；Tokio 选择稳定的 ~1.53.2，兼容补丁由根 Cargo.lock 锁定。unsafe function 内的原始解引用和 foreign 调用必须放进显式 unsafe 块（unsafe_op_in_unsafe_fn = deny）。这项约束检查操作边界，不替代原生 ABI、权限与生命周期验证。正式输入和用户数据身份分开记录，不通过发行号推导持久状态。
 
-消费者 source policy 现在核对声明的 Foundation 版本、全部 normal/build/dev/target/workspace/patch 依赖的精确版本和单一官方完整 revision，防止清单与实际输入漂移。Mac 的符号链接祖先只在已选项目根处归一化一次；源码自身的符号链接仍拒绝。
+消费者 source policy 现在核对声明的 xcsc 版本、全部 normal/build/dev/target/workspace/patch 依赖的精确版本和单一官方完整 revision，防止清单与实际输入漂移。Mac 的符号链接祖先只在已选项目根处归一化一次；源码自身的符号链接仍拒绝。
 
 ## 统一规范适用条款验收
 
 | 条款 | 本轮实施或已有实际边界 | 验证范围 |
 |---|---|---|
-| 2–4：公共职责、依赖方向与结构 | Foundation 只提供通用 CLI、进程、私有文件、锁、秘密和移动 FFI 机制；产品任务、协议和授权仍由产品拥有。CLI 按终端、提权、服务、尾读职责分模块，不按产品创建分支。 | source checker 拒绝 Server 业务包、目录逃逸和未授权 ABI owner；中性日志仅允许官方完整 revision 的精确 leaf。 |
+| 2–4：公共职责、依赖方向与结构 | xcsc 只提供通用 CLI、进程、私有文件、锁、秘密和移动 FFI 机制；产品任务、协议和授权仍由产品拥有。CLI 按终端、提权、服务、尾读职责分模块，不按产品创建分支。 | source checker 拒绝 Server 业务包、目录逃逸和未授权 ABI owner；中性日志仅允许官方完整 revision 的精确 leaf。 |
 | 5–8：身份、错误和安全 | 软件版本、Profile/ABI、任务及数据身份分别校验；错误有固定 code，输出会脱敏；原生块约束指针、长度、生命周期与句柄所有权。 | workspace Rust 行为测试；源、清单、版本和所有者的 23 个 Python 用例；Windows 本机身份不由 Mac 结果推导。 |
 | 9、11–14：CLI、生命周期和预算 | 公共核心命令结构及有界终端输入/日志尾读保持原 API；管理器输出和退出共享 timeout；no-follow、原子提交和锁不削弱。产品决定授权、任务完成与恢复。 | 本机 macOS 默认 workspace 113 个 Rust 用例，包括真实终端、子进程 pipe、Background LaunchAgent、私有目录、原子恢复及并发/锁行为；4 个 helper 由父用例调用。 |
-| 15–16：日志与界面 | 提供中性错误/输出结构；产品事件、实例身份和界面归产品，Foundation Client 不承载管理 Web UI。 | 下游 source 检查与产品行为测试；不添加后台 Server 依赖。 |
+| 15–16：日志与界面 | 提供中性错误/输出结构；产品事件、实例身份和界面归产品，xcsc 不承载管理 Web UI。 | 下游 source 检查与产品行为测试；不添加后台 Server 依赖。 |
 | 19–24：输入、发行、测试与文档 | 单根 Cargo.lock、精确 Rust 1.99.0、同族 crate 版本；source policy 校验所有消费方完整官方 Git revision 与 manifest 版本一致。历史审查与当前职责记录保留。 | fmt、strict Clippy、Mac Rust/Python、iOS simulator library check 已通过；原生 CI、真实 JVM 与实际发行物仍分别验收。 |
 
 这份记录只说明公共层的适用条款。产品的摄像头适配、WSS 管理能力、媒体队列和用户安装路径由各产品的验收记录负责，不将公共单元测试视作完整产品验证。

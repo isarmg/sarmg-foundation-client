@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/isarmg/xcsc/schemas/xcss-client.schema.json",
+  "$id": "https://github.com/isarmg/xcsc/schemas/xcsc-client.schema.json",
   "title": "Xcsc Client product manifest",
   "type": "object",
   "additionalProperties": false,

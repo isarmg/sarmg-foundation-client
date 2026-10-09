@@ -18,7 +18,7 @@ SEMVER = re.compile(
 IDENTIFIER = re.compile(r"[a-z][a-z0-9-]{0,62}")
 CLIENT_LIMIT_KEYS = {"max_record_bytes", "max_spool_bytes", "max_spool_entries"}
 # Product consumers may use these portable leaf mechanisms without importing
-# a Server profile. Foundation Client itself remains independently buildable.
+# a Server profile. xcsc itself remains independently buildable.
 NEUTRAL_FOUNDATION_PACKAGES = {"xcss-log"}
 EXPORTED_RUST_ABI = re.compile(
     r"#\[\s*(?:unsafe\s*\(\s*)?(?:no_mangle|export_name)\b"
@@ -186,7 +186,7 @@ def verify_manifest(product_root: Path, foundation_root: Path) -> dict[str, Any]
     if foundation["platform_generation"] != 1:
         raise ConformanceError("product manifest: unsupported platform generation")
     if not isinstance(foundation["version"], str) or SEMVER.fullmatch(foundation["version"]) is None:
-        raise ConformanceError("product manifest: invalid Foundation version")
+        raise ConformanceError("product manifest: invalid xcsc version")
     source_roots(product_root, manifest)
     components = manifest["components"]
     if not isinstance(components, list) or not components:
@@ -226,7 +226,7 @@ def verify_manifest(product_root: Path, foundation_root: Path) -> dict[str, Any]
             _exact_keys(limits, CLIENT_LIMIT_KEYS, CLIENT_LIMIT_KEYS, f"{context}.client_limits")
             maximum = profile["policy"]["client_limits"]
             if any(type(limit) is not int or not 0 < limit <= maximum[key] for key, limit in limits.items()):
-                raise ConformanceError(f"{context}: client_limits exceed the Foundation Profile")
+                raise ConformanceError(f"{context}: client_limits exceed the xcsc Profile")
         elif "client_limits" in component:
             raise ConformanceError(f"{context}: Profile does not accept client_limits")
         adapters = profile["http_adapters"]
@@ -355,7 +355,7 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                         and re.search(r"\bcatch_unwind\b", source)
                         and owns_mobile_abi(path)
                     ):
-                        findings.append(f"[mobile-ffi-ownership] {path}: exported ABI panic translation belongs to Foundation")
+                        findings.append(f"[mobile-ffi-ownership] {path}: exported ABI panic translation belongs to xcsc")
                 if name == "package.json":
                     package_json = _json(path)
                     for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
@@ -394,11 +394,11 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                     and requirement.get("version") == "=" + manifest["foundation"]["version"]
                     and "path" not in requirement
                 ):
-                    findings.append(f"[client-source-identity] {path}: {package} must pin the declared exact Foundation version and official source revision")
+                    findings.append(f"[client-source-identity] {path}: {package} must pin the declared exact xcsc version and official source revision")
                 elif client_revision is None:
                     client_revision = requirement["rev"]
                 elif client_revision != requirement["rev"]:
-                    findings.append(f"[client-source-identity] {path}: Foundation packages use different source revisions")
+                    findings.append(f"[client-source-identity] {path}: xcsc packages use different source revisions")
             if isinstance(requirement, dict):
                 source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
                 if "xcss" in source and package not in NEUTRAL_FOUNDATION_PACKAGES:

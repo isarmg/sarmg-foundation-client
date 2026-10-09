@@ -1,4 +1,4 @@
-name: Client Foundation CI
+name: Client xcsc CI
 
 on:
   push:
@@ -85,7 +85,7 @@ jobs:
           persist-credentials: false
       - name: Validate client-only policy
         run: |
-          python3 scripts/check-foundation.py
+          python3 scripts/check-xcsc.py
           python3 -m unittest discover -s tools/tests -v
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy

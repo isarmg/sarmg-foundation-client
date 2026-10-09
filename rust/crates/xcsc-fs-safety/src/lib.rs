@@ -458,7 +458,7 @@ impl AtomicFile {
     pub fn is_temporary_name(name: &EntryName) -> bool {
         name.as_os_str()
             .to_str()
-            .and_then(|value| value.strip_prefix(".xcss-atomic-"))
+            .and_then(|value| value.strip_prefix(".xcsc-atomic-"))
             .and_then(|value| value.strip_suffix(".tmp"))
             .is_some_and(|value| {
                 value.len() == 32
@@ -786,7 +786,7 @@ fn temporary_name() -> Result<String, Error> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|_| Error::Randomness)?;
     let nonce: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    Ok(format!(".xcss-atomic-{nonce}.tmp"))
+    Ok(format!(".xcsc-atomic-{nonce}.tmp"))
 }
 
 #[cfg(target_os = "linux")]

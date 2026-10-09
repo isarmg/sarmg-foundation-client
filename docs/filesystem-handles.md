@@ -110,11 +110,11 @@ produce an error.
 
 ## Verification
 
-Foundation tests cover unsafe metadata, budget overflow, links, special files,
+xcsc tests cover unsafe metadata, budget overflow, links, special files,
 publication collisions, lock contention and directory rebinding. Privileged Linux
 tests also verify root-created state/configuration remains accessible to its
 service uid/gid. Non-root runs cannot exercise that privilege case.
 
 Native macOS execution, Windows filesystem guarantees and each product's staging,
 publication and recovery paths require platform-specific acceptance evidence.
-Passing Foundation Linux tests establishes only their exercised boundaries.
+Passing xcsc Linux tests establishes only their exercised boundaries.

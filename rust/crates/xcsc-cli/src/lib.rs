@@ -42,7 +42,7 @@ pub type Result<T> = std::result::Result<T, Failure>;
 
 /// Product-owned descriptions for product error codes.
 ///
-/// Foundation owns the output envelope and descriptions for errors raised by
+/// xcsc owns the output envelope and descriptions for errors raised by
 /// its CLI, terminal and service primitives. Pairing protocols, remote API
 /// semantics and recovery instructions remain in the product that defines
 /// those contracts.
@@ -108,7 +108,7 @@ pub struct Args {
 impl Args {
     /// Parse common options plus the product options declared by the caller.
     ///
-    /// Product option names deliberately stay out of Foundation: a product
+    /// Product option names deliberately stay out of xcsc: a product
     /// supplies only its valued and boolean option declarations. Product
     /// adapters validate the meaning of those values, including path policies,
     /// before dispatching commands. Common config/state paths are absolute.
@@ -285,7 +285,7 @@ pub fn edit_json(current: &Value) -> Result<Value> {
         .or_else(|| std::env::var_os("EDITOR"))
         .ok_or_else(|| fail(2, "editor_not_configured"))?;
     let mut file = tempfile::Builder::new()
-        .prefix("xcss-config-")
+        .prefix("xcsc-config-")
         .suffix(".json")
         .tempfile()
         .map_err(storage_error)?;
@@ -624,10 +624,10 @@ fn failure_message<C: ProductErrorCatalog + ?Sized>(
 ) -> &'static str {
     product_errors
         .message(error.code)
-        .unwrap_or_else(|| foundation_failure_message(error.code))
+        .unwrap_or_else(|| xcsc_failure_message(error.code))
 }
 
-fn foundation_failure_message(code: &str) -> &'static str {
+fn xcsc_failure_message(code: &str) -> &'static str {
     match code {
         "absolute_path_required" => "The selected path must be absolute and normalized.",
         "configuration_already_exists" => "A configuration already exists at the selected path.",
@@ -930,7 +930,7 @@ mod concise_error_tests {
             .arg("--exact")
             .arg("concise_error_tests::unix_prompt_child")
             .arg("--nocapture")
-            .env("XCSS_PROMPT_TEST", mode)
+            .env("XCSC_PROMPT_TEST", mode)
             .stdin(Stdio::null())
             .stdout(Stdio::from(slave.try_clone().expect("clone PTY slave")))
             .stderr(Stdio::from(slave.try_clone().expect("clone PTY slave")));
@@ -1017,7 +1017,7 @@ mod concise_error_tests {
     #[cfg(unix)]
     #[test]
     fn unix_prompt_child() {
-        let Ok(mode) = std::env::var("XCSS_PROMPT_TEST") else {
+        let Ok(mode) = std::env::var("XCSC_PROMPT_TEST") else {
             return;
         };
         let (max_bytes, timeout) = match mode.as_str() {
@@ -1260,7 +1260,7 @@ mod concise_error_tests {
         assert!(rendered.contains("Repair the example binding"));
 
         assert_eq!(
-            foundation_failure_message("pairing_endpoint_not_found"),
+            xcsc_failure_message("pairing_endpoint_not_found"),
             "The operation failed; error.code identifies the exact machine-readable reason."
         );
     }

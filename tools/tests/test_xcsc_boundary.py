@@ -12,13 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 from client_policy import ConformanceError
 
-SPEC = importlib.util.spec_from_file_location("check_foundation", ROOT / "scripts/check-foundation.py")
+SPEC = importlib.util.spec_from_file_location("check_xcsc", ROOT / "scripts/check-xcsc.py")
 assert SPEC is not None and SPEC.loader is not None
 CHECKER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CHECKER)
 
 
-class FoundationBoundaryTests(unittest.TestCase):
+class XcscBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
@@ -40,8 +40,11 @@ class FoundationBoundaryTests(unittest.TestCase):
         cargo = self.root / "Cargo.toml"
         original = cargo.read_text()
         for section in [
-            '[patch.crates-io]\nproduct = { package = "xcss-product", version = "0.1" }',
-            '[replace]\n"xcss-product:0.1.0" = { version = "=1.0.0" }',
+            f'[patch.crates-io]\nproduct = {{ package = "{package}", version = "0.1" }}'
+            for package in ("xcss-product", "xcsc-product")
+        ] + [
+            f'[replace]\n"{package}:0.1.0" = {{ version = "=1.0.0" }}'
+            for package in ("xcss-product", "xcsc-product")
         ]:
             with self.subTest(section=section):
                 cargo.write_text(original + "\n" + section + "\n")
@@ -72,9 +75,11 @@ version = "={version}"
 
     def test_unused_workspace_dependencies_must_stay_inside_foundation(self) -> None:
         cargo = self.root / "Cargo.toml"
-        cargo.write_text(cargo.read_text() + '''
-[workspace.dependencies.xcss-product]
+        original = cargo.read_text()
+        for package in ("xcss-product", "xcsc-product"):
+            with self.subTest(package=package):
+                cargo.write_text(original + f'''\n[workspace.dependencies.{package}]
 version = "0.1.0"
 ''')
-        with self.assertRaisesRegex(ConformanceError, "outside client platform"):
-            CHECKER.check()
+                with self.assertRaisesRegex(ConformanceError, "outside client platform"):
+                    CHECKER.check()

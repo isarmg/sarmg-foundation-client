@@ -1,9 +1,9 @@
 # Current mobile FFI boundary
 
-Foundation owns ABI revision 1, panic containment, input and output bounds,
+xcsc owns ABI revision 1, panic containment, input and output bounds,
 generational handles, result allocation/release, JNI Unicode validation and
 exception classes. Products own DTOs, storage operations and business state
-identity. ABI 2 uses explicit input lengths and caller-provided result storage.
+identity. ABI 1 uses explicit input lengths and caller-provided result storage.
 
 ## C contract
 
@@ -38,9 +38,9 @@ closes the handle; new lookups fail.
 JNI 0.22 native entrypoints accept `jni::EnvUnowned`; the shared `jni::guard`
 borrows `jni::Env` only inside its controlled callback. Product callbacks do not
 construct an Env from raw pointers. This public Rust type change is reflected in
-Foundation 0.10.0; the C ABI remains revision 2.
+xcsc 1.0.0; the current C ABI is revision 1.
 
-Foundation reads bounded UTF-16 and rejects unpaired surrogates rather than
+xcsc reads bounded UTF-16 and rejects unpaired surrogates rather than
 silently replacing text. Invalid arguments map to IllegalArgumentException,
 invalid handles to IllegalStateException, resource exhaustion to OutOfMemoryError,
 and internal failures/panics to RuntimeException. Pending JVM exceptions are

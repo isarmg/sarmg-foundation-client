@@ -1,4 +1,4 @@
-name: Client Foundation Release
+name: Client xcsc Release
 
 on:
   push:

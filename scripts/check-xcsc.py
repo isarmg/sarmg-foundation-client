@@ -26,7 +26,7 @@ def check_dependencies(manifest: dict, directory: Path, workspace: dict) -> None
             requirement = workspace["dependencies"][name]
             source_directory = ROOT
         package = requirement.get("package", name) if isinstance(requirement, dict) else name
-        if package.startswith("xcss-") and package not in PACKAGES:
+        if package.startswith(("xcss-", "xcsc-")) and package not in PACKAGES:
             raise ConformanceError(f"{directory}: dependency outside client platform: {package}")
         if isinstance(requirement, dict) and "path" in requirement:
             dependency = (source_directory / requirement["path"]).resolve(strict=True)
@@ -55,7 +55,7 @@ def check() -> dict:
         if (path / "LICENSE").read_bytes() != (ROOT / "LICENSE").read_bytes():
             raise ConformanceError(f"{path}: license differs")
         check_dependencies(manifest, path, workspace)
-    schema = json.loads((ROOT / "schemas/xcss-client.schema.json").read_text())
+    schema = json.loads((ROOT / "schemas/xcsc-client.schema.json").read_text())
     if set(schema["properties"]["components"]["items"]["properties"]["profile"]["enum"]) != set(profiles):
         raise ConformanceError("manifest schema Profile enum differs")
     return {"repository": ROOT.name, "packages": sorted(PACKAGES), "profiles": sorted(profiles)}

@@ -508,7 +508,7 @@ mod tests {
             Spool::open(&path, limits()),
             Err(Error::AlreadyRunning)
         ));
-        let temporary = path.join(".xcss-atomic-0123456789abcdef0123456789abcdef.tmp");
+        let temporary = path.join(".xcsc-atomic-0123456789abcdef0123456789abcdef.tmp");
         fs::write(&temporary, b"unfinished write").unwrap();
         assert!(Spool::inspect_existing(&path, limits()).is_err());
         assert_eq!(fs::read(&temporary).unwrap(), b"unfinished write");
@@ -841,7 +841,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("spool");
         let spool = Spool::open(&path, limits()).unwrap();
-        let temporary = path.join(format!(".xcss-atomic-{}.tmp", "a".repeat(32)));
+        let temporary = path.join(format!(".xcsc-atomic-{}.tmp", "a".repeat(32)));
         AtomicFile::create(
             &spool.directory,
             &EntryName::new(temporary.file_name().unwrap()).unwrap(),
@@ -999,7 +999,7 @@ mod tests {
         let _spool = Spool::open(&path, limits()).unwrap();
         let result = std::process::Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "spool::tests::process_lock_child", "--ignored"])
-            .env("XCSS_SPOOL_LOCK_TEST_PATH", path)
+            .env("XCSC_SPOOL_LOCK_TEST_PATH", path)
             .output()
             .unwrap();
         assert!(
@@ -1013,7 +1013,7 @@ mod tests {
     #[ignore = "invoked by process_lock_excludes_an_independent_test_process"]
     fn process_lock_child() {
         let path =
-            std::env::var_os("XCSS_SPOOL_LOCK_TEST_PATH").expect("parent supplies lock path");
+            std::env::var_os("XCSC_SPOOL_LOCK_TEST_PATH").expect("parent supplies lock path");
         assert!(matches!(
             Spool::open(Path::new(&path), limits()),
             Err(Error::AlreadyRunning)

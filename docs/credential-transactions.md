@@ -35,7 +35,7 @@ using the superseded snapshot and schedules a batch with the replacement.
 Adapters own any auxiliary workers and must terminate workers whose snapshot is
 superseded or whose driver is dropped.
 
-Foundation tests validate exact authorization spellings and snapshot clone
+xcsc tests validate exact authorization spellings and snapshot clone
 semantics. Each product tests transaction locking, rotation, delayed rejection,
 superseded replacements, incomplete commits, unsafe state and recovery against
 its concrete storage adapter. Linux execution alone does not establish

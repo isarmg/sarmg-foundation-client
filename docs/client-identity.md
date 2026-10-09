@@ -15,7 +15,7 @@ A sender uses the captured identity throughout the request. Rotation constructs
 a complete replacement snapshot; the product adapter installs it atomically.
 
 Products own UUID constraints, identity filenames, payload fields, endpoint
-bindings and state recovery. Foundation runtime identity does not authenticate
+bindings and state recovery. xcsc runtime identity does not authenticate
 requests: TLS, remote authorization and credential revision checks remain
 separate requirements.
 
@@ -32,12 +32,12 @@ Quarantined entries consume capacity and survive restart.
 `Spool::inspect_existing` reports `identity_mismatch_entries` as a subset of
 `quarantined_entries`. Inspection does not acquire the writer lock, read payloads
 or validate payload checksums. Products decide how to present these observations
-and how operators review retained evidence. Foundation does not relabel,
+and how operators review retained evidence. xcsc does not relabel,
 automatically replay or purge an isolated record.
 
 ## Verification
 
-Foundation tests cover identifier dimensions, byte budgets, exact equality,
+xcsc tests cover identifier dimensions, byte budgets, exact equality,
 secret-sharing snapshot clones, durable quarantine, publication collisions and
 batch ordering. Product repositories validate their wire identities, storage
 adapters and command behavior. Native filesystem acceptance is recorded for each

@@ -153,7 +153,7 @@ class ClientPolicyTests(unittest.TestCase):
                 verify_source(product, ROOT)
 
     def test_manifest_schema_accepts_the_current_version(self) -> None:
-        schema = json.loads((ROOT / "schemas/xcss-client.schema.json").read_text())
+        schema = json.loads((ROOT / "schemas/xcsc-client.schema.json").read_text())
         pattern = schema["properties"]["foundation"]["properties"]["version"]["pattern"]
         self.assertIsNotNone(re.fullmatch(pattern, "0.5.0"))
         self.assertIsNone(re.fullmatch(pattern, "0x5x0"))

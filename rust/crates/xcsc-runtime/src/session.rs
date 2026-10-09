@@ -76,8 +76,8 @@ mod tests {
                     "--exact",
                     "session::tests::contender_process_helper",
                 ])
-                .env("XCSS_CLIENT_SESSION_TEST_PATH", &path)
-                .env("XCSS_CLIENT_SESSION_TEST_EXPECT", expected)
+                .env("XCSC_CLIENT_SESSION_TEST_PATH", &path)
+                .env("XCSC_CLIENT_SESSION_TEST_EXPECT", expected)
                 .output()
                 .unwrap();
             assert!(
@@ -95,9 +95,9 @@ mod tests {
     #[test]
     #[ignore = "subprocess helper invoked by session_excludes_another_process_until_its_owner_drops"]
     fn contender_process_helper() {
-        let path = std::env::var_os("XCSS_CLIENT_SESSION_TEST_PATH").unwrap();
+        let path = std::env::var_os("XCSC_CLIENT_SESSION_TEST_PATH").unwrap();
         let result = ClientSession::open(Path::new(&path));
-        if std::env::var("XCSS_CLIENT_SESSION_TEST_EXPECT").unwrap() == "busy" {
+        if std::env::var("XCSC_CLIENT_SESSION_TEST_EXPECT").unwrap() == "busy" {
             assert!(matches!(result, Err(Error::AlreadyRunning)));
         } else {
             assert!(result.is_ok());

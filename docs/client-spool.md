@@ -1,6 +1,6 @@
 # Current Client spool
 
-Foundation owns the opaque spool container, atomic publication, ordering, capacity,
+xcsc owns the opaque spool container, atomic publication, ordering, capacity,
 locking, acknowledgement, corruption isolation and delivery cancellation. Products
 own only payload codecs, collection timing and their transport protocol.
 
@@ -22,7 +22,7 @@ an already-acknowledged report as complete.
 
 The process-exclusive spool lock is acquired before cleanup. A process-local mutex
 serializes the complete capacity-check/publication and read/ack/quarantine
-sequences. Only the exact current `.xcss-atomic-<32 lowercase hex>.tmp` namespace
+sequences. Only the exact current `.xcsc-atomic-<32 lowercase hex>.tmp` namespace
 can be cleaned after acquiring the lock; arbitrary `.tmp` files are preserved and
 cause failure. Quarantine uses no-clobber publication and retains the original
 container bytes without replacing existing evidence. The finite
