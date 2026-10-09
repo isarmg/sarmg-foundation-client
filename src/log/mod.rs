@@ -697,12 +697,14 @@ mod tests {
         let mut raw: Value = serde_json::from_slice(&record.json_line().unwrap()).unwrap();
         assert_eq!(raw["scope"], "client");
         raw["scope"] = Value::String("server".into());
-        let bytes = serde_json::to_vec(&raw).unwrap();
+        let mut bytes = serde_json::to_vec(&raw).unwrap();
+        bytes.push(b'\n');
         let parsed = query(&bytes[..], LogFilter::default(), QueryLimits::default()).unwrap();
         assert_eq!(parsed[0].scope(), Scope::Server);
         raw["scope"] = Value::String("client".into());
         raw["instance_type"] = Value::String("camera".into());
-        let bytes = serde_json::to_vec(&raw).unwrap();
+        let mut bytes = serde_json::to_vec(&raw).unwrap();
+        bytes.push(b'\n');
         assert!(query(&bytes[..], LogFilter::default(), QueryLimits::default()).is_err());
     }
 

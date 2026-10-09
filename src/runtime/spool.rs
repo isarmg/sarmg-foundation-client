@@ -1006,6 +1006,7 @@ mod tests {
             .env("XCSC_SPOOL_LOCK_TEST_PATH", path)
             .output()
             .unwrap();
+        crate::assert_one_subprocess_test(&result);
         assert!(
             result.status.success(),
             "{}",

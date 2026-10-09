@@ -448,6 +448,7 @@ mod tests {
             ])
             .output()
             .unwrap();
+        crate::assert_one_subprocess_test(&result);
         assert!(result.status.success());
         assert!(!String::from_utf8_lossy(&result.stderr).contains("ffi-secret-must-not-escape"));
         assert!(!String::from_utf8_lossy(&result.stdout).contains("ffi-secret-must-not-escape"));

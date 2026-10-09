@@ -990,10 +990,12 @@ mod concise_error_tests {
         let mut restored: libc::termios = unsafe { std::mem::zeroed() };
         assert_eq!(unsafe { libc::tcgetattr(master_fd, &mut restored) }, 0);
         assert_eq!(initial.c_lflag & libc::ECHO, restored.c_lflag & libc::ECHO);
-        (
-            String::from_utf8(output).expect("UTF-8 prompt transcript"),
-            restored.c_lflag,
-        )
+        let transcript = String::from_utf8(output).expect("UTF-8 prompt transcript");
+        assert!(
+            transcript.contains("running 1 test") && transcript.contains("1 passed;"),
+            "expected one successful prompt subprocess test: {transcript}"
+        );
+        (transcript, restored.c_lflag)
     }
 
     #[cfg(unix)]

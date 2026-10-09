@@ -1240,6 +1240,7 @@ mod tests {
             .gid(65534)
             .output()
             .unwrap();
+        crate::assert_one_subprocess_test(&output);
         assert!(
             output.status.success(),
             "{}\n{}",
@@ -1268,6 +1269,7 @@ mod tests {
             command.uid(65534).gid(65534);
         }
         let output = command.output().unwrap();
+        crate::assert_one_subprocess_test(&output);
         assert!(
             output.status.success(),
             "{}\n{}",

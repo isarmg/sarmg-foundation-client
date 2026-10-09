@@ -80,6 +80,7 @@ mod tests {
                 .env("XCSC_CLIENT_SESSION_TEST_EXPECT", expected)
                 .output()
                 .unwrap();
+            crate::assert_one_subprocess_test(&result);
             assert!(
                 result.status.success(),
                 "{}",

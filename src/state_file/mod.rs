@@ -694,11 +694,12 @@ mod tests {
                     "state_file::tests::administration_uid_helper",
                     "--ignored",
                 ])
-                .env("XCSS_ADMIN_TEST_DATA", &path)
-                .env("XCSS_ADMIN_TEST_DENIED", if denied { "yes" } else { "no" })
+                .env("XCSC_ADMIN_TEST_DATA", &path)
+                .env("XCSC_ADMIN_TEST_DENIED", if denied { "yes" } else { "no" })
                 .uid(uid)
                 .gid(uid)
                 .output()?;
+            crate::assert_one_subprocess_test(&result);
             assert!(
                 result.status.success(),
                 "{}",
@@ -735,8 +736,8 @@ mod tests {
     #[test]
     #[ignore = "real uid helper invoked by administration_preserves_service_ownership_without_relaxing_runtime"]
     fn administration_uid_helper() {
-        let path = PathBuf::from(std::env::var_os("XCSS_ADMIN_TEST_DATA").unwrap());
-        if std::env::var("XCSS_ADMIN_TEST_DENIED").unwrap() == "yes" {
+        let path = PathBuf::from(std::env::var_os("XCSC_ADMIN_TEST_DATA").unwrap());
+        if std::env::var("XCSC_ADMIN_TEST_DENIED").unwrap() == "yes" {
             assert!(PrivateStateDirectory::open(&path).is_err());
             assert!(PrivateStateDirectory::open_for_administration(&path).is_err());
         } else {

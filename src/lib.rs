@@ -20,3 +20,17 @@ pub mod secure_xml;
 pub mod sqlite;
 #[cfg(all(target_os = "linux", feature = "offline-maintenance"))]
 pub mod state_file;
+
+#[cfg(test)]
+pub(crate) fn assert_one_subprocess_test(output: &std::process::Output) {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success()
+            && stdout.contains("running 1 test")
+            && stdout.contains("1 passed;"),
+        "expected one successful subprocess test: status={}, stdout={}, stderr={}",
+        output.status,
+        stdout,
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -197,6 +197,7 @@ mod tests {
             });
         }
         let output = command.output().unwrap();
+        crate::assert_one_subprocess_test(&output);
         assert!(output.status.success(), "{output:?}");
     }
 

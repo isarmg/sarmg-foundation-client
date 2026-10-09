@@ -311,9 +311,10 @@ fn process_sink_routes_typed_and_tracing_events_to_one_persistent_file() {
             "--exact",
             "log::windows_rotating::tests::process_sink_helper",
         ])
-        .env("XCSS_LOG_TEST_DIRECTORY", parent.path().join("logs"))
+        .env("XCSC_LOG_TEST_DIRECTORY", parent.path().join("logs"))
         .output()
         .unwrap();
+    crate::assert_one_subprocess_test(&result);
     assert!(
         result.status.success(),
         "{}",
@@ -331,7 +332,7 @@ fn process_sink_routes_typed_and_tracing_events_to_one_persistent_file() {
 #[ignore = "invoked in a subprocess by process_sink_routes_typed_and_tracing_events_to_one_persistent_file"]
 fn process_sink_helper() {
     use tracing_subscriber::prelude::*;
-    let path = PathBuf::from(std::env::var_os("XCSS_LOG_TEST_DIRECTORY").unwrap());
+    let path = PathBuf::from(std::env::var_os("XCSC_LOG_TEST_DIRECTORY").unwrap());
     let sink = RotatingLogFile::create_private(&path, "service", limits()).unwrap();
     crate::log::install_rotating_file(sink).unwrap();
     record("instance").emit().unwrap();
