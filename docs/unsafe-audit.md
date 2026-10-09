@@ -41,3 +41,5 @@ macOS 的成功 `bootout` 与后续卸载观察共享原操作 deadline：只有
 1.0.0 的有界退出等待复用可取消的 Tokio `Child::wait`，每 25 ms 重新轮询以处理继承屏蔽的 `SIGCHLD`；生产实现没有新增 unsafe。Unix 回归的 `pre_exec` 仅在独立测试子进程中通过 async-signal-safe 调用设置信号掩码，并逐步检查错误，不修改并行测试 runner。spool 只读检查复用已有管理目录策略，保留 no-follow 和私有权限验证；root 原生回归比较服务属主 fixture 的 inode、属主、权限及内容，并覆盖链接、公开目录和缺失目录拒绝。
 
 单体结构、Client 日志归属和 Linux 离线维护 feature 的当前约束见[单体说明](monolithic-client.md)。以上历史 macOS 113 项、Python 23 项及交叉检查只记录对应原始 Source 的事实，不作为当前单体最终验收证据；当前结果由本次最终 Source 测试和原生 CI 分别记录。
+
+Linux 离线 `state_file` 锁采用私有 RAII guard，在 flock 成功后、身份复验前接管；隐式退出及复验失败显式解开原描述符锁，防止 fork/dup alias 暂存使维护仍被占用。显式交接成功标记不再持锁，避免 Drop 再次解开 alias 后来取得的新锁。使用安全的 `File::unlock`，不增加 unsafe；回归核对真实同描述符 alias、实例/维护双锁、inode与属主权限不变，以及旧 inode 复验失败不会释放替换 inode 上的新 guard。

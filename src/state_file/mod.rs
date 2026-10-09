@@ -206,8 +206,8 @@ impl PrivateStateDirectory {
     pub fn try_instance_lock(&self) -> Result<InstanceLock, Error> {
         self.verify_identity()?;
         let maintenance = self.create_file(MAINTENANCE_LOCK_FILE)?;
-        try_flock(
-            maintenance.file(),
+        let maintenance = StateLock::acquire(
+            maintenance,
             FlockOperation::NonBlockingLockShared,
             LockKind::Maintenance,
         )?;
@@ -215,8 +215,8 @@ impl PrivateStateDirectory {
         // intent between this check and acquisition of the runtime lock.
         self.verify_no_pending_maintenance()?;
         let instance = self.create_file(INSTANCE_LOCK_FILE)?;
-        try_flock(
-            instance.file(),
+        let instance = StateLock::acquire(
+            instance,
             FlockOperation::NonBlockingLockExclusive,
             LockKind::Instance,
         )?;
@@ -233,8 +233,8 @@ impl PrivateStateDirectory {
     pub fn try_maintenance_lock(&self) -> Result<MaintenanceLock, Error> {
         self.verify_identity()?;
         let file = self.create_file(MAINTENANCE_LOCK_FILE)?;
-        try_flock(
-            file.file(),
+        let file = StateLock::acquire(
+            file,
             FlockOperation::NonBlockingLockExclusive,
             LockKind::Maintenance,
         )?;
@@ -251,8 +251,8 @@ impl PrivateStateDirectory {
     pub fn try_shared_maintenance_lock(&self) -> Result<MaintenanceLock, Error> {
         self.verify_identity()?;
         let file = self.create_file(MAINTENANCE_LOCK_FILE)?;
-        try_flock(
-            file.file(),
+        let file = StateLock::acquire(
+            file,
             FlockOperation::NonBlockingLockShared,
             LockKind::Maintenance,
         )?;
@@ -366,16 +366,70 @@ impl SecureStateFile {
 }
 
 #[derive(Debug)]
+struct StateLock {
+    file: SecureStateFile,
+    kind: LockKind,
+    held: bool,
+}
+
+impl StateLock {
+    fn acquire(
+        file: SecureStateFile,
+        operation: FlockOperation,
+        kind: LockKind,
+    ) -> Result<Self, Error> {
+        try_flock(file.file(), operation, kind)?;
+        // Own the successful lock immediately, including all subsequent
+        // identity-check error paths. A fork/dup alias can outlive our file.
+        Ok(Self {
+            file,
+            kind,
+            held: true,
+        })
+    }
+
+    fn unlock(&mut self) -> Result<(), Error> {
+        if self.held {
+            try_flock(self.file.file(), FlockOperation::Unlock, self.kind)?;
+            // An alias may acquire another lock on this description after
+            // handoff. Drop must never unlock that newly acquired ownership.
+            self.held = false;
+        }
+        Ok(())
+    }
+}
+
+impl std::ops::Deref for StateLock {
+    type Target = SecureStateFile;
+
+    fn deref(&self) -> &Self::Target {
+        &self.file
+    }
+}
+
+impl Drop for StateLock {
+    fn drop(&mut self) {
+        if self.held {
+            // Release this open file description before closing it, even
+            // when inherited aliases remain. Cleanup only touches the held
+            // descriptor; it never reopens, unlinks or repairs a state path.
+            let _ = self.file.file().unlock();
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct InstanceLock {
     directory: PrivateStateDirectory,
-    _maintenance_guard: SecureStateFile,
-    _instance: SecureStateFile,
+    // Drop the instance ownership before the shared maintenance gate.
+    _instance: StateLock,
+    _maintenance_guard: StateLock,
 }
 
 #[derive(Debug)]
 pub struct MaintenanceLock {
     directory: PrivateStateDirectory,
-    _file: SecureStateFile,
+    _file: StateLock,
 }
 
 impl InstanceLock {
@@ -389,18 +443,10 @@ impl InstanceLock {
     /// Explicitly hand off write ownership after all business resources close.
     /// Unlocking the open file description also covers descriptors inherited
     /// briefly by concurrently spawned processes before their exec boundary.
-    pub fn release(self) -> Result<(), Error> {
+    pub fn release(mut self) -> Result<(), Error> {
         self.verify_identity()?;
-        try_flock(
-            self._instance.file(),
-            FlockOperation::Unlock,
-            LockKind::Instance,
-        )?;
-        try_flock(
-            self._maintenance_guard.file(),
-            FlockOperation::Unlock,
-            LockKind::Maintenance,
-        )
+        self._instance.unlock()?;
+        self._maintenance_guard.unlock()
     }
 }
 
@@ -418,13 +464,9 @@ impl MaintenanceLock {
     }
 
     /// Complete the controlled maintenance handoff before starting the server.
-    pub fn release(self) -> Result<(), Error> {
+    pub fn release(mut self) -> Result<(), Error> {
         self.verify_identity()?;
-        try_flock(
-            self._file.file(),
-            FlockOperation::Unlock,
-            LockKind::Maintenance,
-        )
+        self._file.unlock()
     }
 }
 
@@ -918,6 +960,117 @@ mod tests {
             state.try_instance_lock(),
             Err(Error::MaintenancePending)
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_drop_unlocks_maintenance_even_when_a_description_alias_survives()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let parent = private_tempdir()?;
+        let state = PrivateStateDirectory::open(parent.path())?;
+        let maintenance = state.try_maintenance_lock()?;
+        let alias = maintenance._file.file().try_clone()?;
+        let before = alias.metadata()?;
+        assert!(state.try_maintenance_lock().is_err());
+        drop(maintenance);
+        let replacement = state.try_maintenance_lock()?;
+        drop(alias);
+        assert!(state.try_maintenance_lock().is_err());
+        replacement.verify_identity()?;
+        let after = fs::metadata(state.path().join(MAINTENANCE_LOCK_FILE))?;
+        assert_eq!(
+            (
+                before.dev(),
+                before.ino(),
+                before.uid(),
+                before.gid(),
+                before.mode()
+            ),
+            (
+                after.dev(),
+                after.ino(),
+                after.uid(),
+                after.gid(),
+                after.mode()
+            )
+        );
+        replacement.release()?;
+        Ok(())
+    }
+
+    #[test]
+    fn implicit_instance_drop_unlocks_both_descriptions_without_unlinking_state()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let parent = private_tempdir()?;
+        let state = PrivateStateDirectory::open(parent.path())?;
+        let instance = state.try_instance_lock()?;
+        let instance_alias = instance._instance.file().try_clone()?;
+        let maintenance_alias = instance._maintenance_guard.file().try_clone()?;
+        let identity = instance._instance.identity();
+        drop(instance);
+        state.try_maintenance_lock()?.release()?;
+        let replacement = state.try_instance_lock()?;
+        drop(instance_alias);
+        drop(maintenance_alias);
+        assert!(state.try_instance_lock().is_err());
+        assert_eq!(replacement._instance.identity(), identity);
+        replacement.release()?;
+        Ok(())
+    }
+
+    #[test]
+    fn explicit_unlock_prevents_old_guard_drop_from_releasing_a_reacquired_alias()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let parent = private_tempdir()?;
+        let state = PrivateStateDirectory::open(parent.path())?;
+        let mut maintenance = state.try_maintenance_lock()?;
+        let alias = maintenance._file.file().try_clone()?;
+        maintenance._file.unlock()?;
+        try_flock(
+            &alias,
+            FlockOperation::NonBlockingLockExclusive,
+            LockKind::Maintenance,
+        )?;
+        drop(maintenance);
+        assert!(state.try_maintenance_lock().is_err());
+        alias.unlock()?;
+        state.try_maintenance_lock()?.release()?;
+        Ok(())
+    }
+
+    #[test]
+    fn identity_failure_cleanup_unlocks_only_the_held_original_description()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let parent = private_tempdir()?;
+        let state = PrivateStateDirectory::open(parent.path())?;
+        let maintenance = state.try_maintenance_lock()?;
+        let alias = maintenance._file.file().try_clone()?;
+        let original_identity = maintenance._file.identity();
+        fs::rename(
+            state.path().join(MAINTENANCE_LOCK_FILE),
+            state.path().join("original-lock"),
+        )?;
+        let replacement = state.try_maintenance_lock()?;
+        assert!(matches!(
+            maintenance.release(),
+            Err(Error::FileIdentityChanged { .. })
+        ));
+        // release's identity check fails, but ownership cleanup still unlocks
+        // the original inode while the separately opened replacement stays held.
+        try_flock(
+            &alias,
+            FlockOperation::NonBlockingLockExclusive,
+            LockKind::Maintenance,
+        )?;
+        assert!(state.try_maintenance_lock().is_err());
+        let old_metadata = fs::metadata(state.path().join("original-lock"))?;
+        assert_eq!(
+            FileIdentity::from_metadata(&old_metadata),
+            original_identity
+        );
+        replacement.verify_identity()?;
+        alias.unlock()?;
+        replacement.release()?;
         Ok(())
     }
 }

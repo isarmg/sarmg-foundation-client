@@ -27,6 +27,12 @@ xcsc 的 Rust 部分只有根目录一个 package `xcsc`、一个 `Cargo.toml` �
 拥有。Client 自身日志用 `LogRecord::client` 和 `scope=client`；离线查询仍能读取
 既有 `scope=server` 记录并保持其身份。
 
+维护及实例 flock 在取得后立即由私有 RAII guard 持有，后续身份检查失败和
+隐式 Drop 都先解锁该 open file description，再关闭描述符，避免并行进程
+短暂继承同一描述符时阻塞恢复。显式交接成功后取消 guard 的解锁责任，保证
+旧 guard 的销毁不会解开 alias 后来重新获得的锁。清理不重新打开、删除或
+修复路径；锁文件的 inode、属主与权限校验不变。
+
 ## Features 与平台
 
 默认 features 为空。普通桌面 Client 可以直接导入 CLI、运行时、文件与秘密
