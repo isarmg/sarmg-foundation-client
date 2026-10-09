@@ -33,6 +33,11 @@ xcsc 的 Rust 部分只有根目录一个 package `xcsc`、一个 `Cargo.toml` �
 旧 guard 的销毁不会解开 alias 后来重新获得的锁。清理不重新打开、删除或
 修复路径；锁文件的 inode、属主与权限校验不变。
 
+`Spool::inspect_directory(&PrivateDirectory, SpoolLimits)` 接受已验证并锚定的
+私有目录能力，复用公共库存扫描与健康字段；`inspect_existing` 仅在开目录后
+委托。Windows 产品传入自身 SCM 角色策略打开的目录，不在产品内重写 spool
+命名空间或统计规则；调用保留原目录权限策略、writer 锁和只读、有限预算边界。
+
 ## Features 与平台
 
 默认 features 为空。普通桌面 Client 可以直接导入 CLI、运行时、文件与秘密

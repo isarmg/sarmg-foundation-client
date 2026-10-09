@@ -49,7 +49,8 @@ directory descriptor. Renaming or replacing the original path cannot redirect
 those operations. Symlink, hardlink and special-file entries fail closed without
 being read or removed. The directory is exclusive application state, not an
 untrusted shared namespace. Windows/macOS native safety and execution acceptance
-remain pending; a cross-compilation check alone does not prove those semantics.
+must be verified against the final source; a cross-compilation check alone does
+not prove those semantics.
 
 `Spool::inspect_existing` uses the same bounded current-namespace inventory for
 read-only status and doctor commands. It never creates a directory or lock file,
@@ -60,6 +61,16 @@ unsafe entries fail closed. A writer's active temporary or concurrent removal ca
 cause a transient inspection error; the result is not a transactional snapshot.
 This inventory does not verify payload checksums and must not be presented as a
 full data-integrity check.
+
+`Spool::inspect_directory(&PrivateDirectory, SpoolLimits)` borrows an already
+anchored directory capability and runs the same inventory without reopening its
+path or choosing another access policy. `inspect_existing` opens the administrative
+directory and delegates to this entry point. Products with an authoritative Windows
+SCM service policy can supply the directory opened with that exact policy; shared
+runtime code owns parsing and health statistics. The capability still enforces
+its no-follow, identity and private ACL checks. Both entry points validate limits,
+retain writer locks, reject unknown entries, and leave files and metadata unchanged.
+They neither inspect payload integrity nor produce a transactional snapshot.
 
 On Unix, the owner or a root administrator may inspect private service-owned
 state through the administrative directory policy. The no-follow and private

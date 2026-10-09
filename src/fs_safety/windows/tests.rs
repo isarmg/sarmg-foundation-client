@@ -470,6 +470,66 @@ fn assert_native_inherited_acl(file: &File, directory: bool) {
 }
 
 #[test]
+fn spool_inspection_borrows_the_verified_service_policy_without_reopening_as_user() {
+    use crate::runtime::{BoundedBytes, ContractId, QuarantineReason, Spool, SpoolLimits};
+    let (_temp, root, _name) = service_fixture();
+    let directory = root
+        .create_child(&EntryName::new("spool").unwrap())
+        .unwrap();
+    let path = directory.path().to_path_buf();
+    let limits = SpoolLimits {
+        max_record_bytes: 1024,
+        max_entries: 8,
+        max_bytes: 16 * 1024,
+    };
+    let writer = Spool::from_directory(directory, limits).unwrap();
+    let id = writer
+        .enqueue(
+            ContractId::new("example.current").unwrap(),
+            1,
+            BoundedBytes::new(b"pending".to_vec(), 1024).unwrap(),
+        )
+        .unwrap();
+    writer
+        .quarantine(&id, QuarantineReason::IdentityMismatch)
+        .unwrap();
+    // The interactive-user policy must continue rejecting the service ACL.
+    assert!(Spool::inspect_existing(&path, limits).is_err());
+    let inspector = PrivateDirectory::open_with_windows_access(&path, root.access.clone()).unwrap();
+    let before_acl = physical_acl_text(&inspector.directory);
+    let before = inspector
+        .files(InventoryLimits {
+            max_entries: 9,
+            max_total_bytes: limits.max_bytes,
+        })
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.name, entry.bytes))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let health = Spool::inspect_directory(&inspector, limits).unwrap();
+    assert_eq!(health, writer.doctor().unwrap());
+    assert_eq!(health.identity_mismatch_entries, 1);
+    assert_eq!(physical_acl_text(&inspector.directory), before_acl);
+    let after = inspector
+        .files(InventoryLimits {
+            max_entries: 9,
+            max_total_bytes: limits.max_bytes,
+        })
+        .unwrap()
+        .into_iter()
+        .map(|entry| (entry.name, entry.bytes))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(after, before);
+    assert!(matches!(
+        AdvisoryLock::acquire(
+            &inspector,
+            &EntryName::new("spool.instance.lock").unwrap().as_relative()
+        ),
+        Err(Error::AlreadyLocked(_))
+    ));
+}
+
+#[test]
 fn service_children_and_state_inherit_from_the_held_provisioned_anchor() {
     let (_temp, root, _name) = service_fixture();
     let first = root

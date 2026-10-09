@@ -65,7 +65,24 @@ impl Spool {
     ) -> Result<crate::runtime::ClientHealth, Error> {
         limits.validate()?;
         let directory = PrivateDirectory::open_for_administration(path)?;
-        inventory_health(&current_entries(&directory, limits)?, limits)
+        Self::inspect_directory(&directory, limits)
+    }
+
+    /// Inspect an already anchored private-directory capability without reopening
+    /// its path or changing its access policy. Products may supply a directory
+    /// opened under their authoritative Windows service ACL policy.
+    ///
+    /// Uses the same bounded namespace inventory as [`Self::inspect_existing`].
+    /// Borrows the capability, never acquires a writer lock, creates or repairs
+    /// storage, cleans up temporaries, or validates record payloads. The original
+    /// no-follow, identity and permission checks remain enforced by the directory.
+    /// Concurrent changes may fail; the result is not a transactional snapshot.
+    pub fn inspect_directory(
+        directory: &PrivateDirectory,
+        limits: SpoolLimits,
+    ) -> Result<crate::runtime::ClientHealth, Error> {
+        limits.validate()?;
+        inventory_health(&current_entries(directory, limits)?, limits)
     }
 
     pub fn open(path: impl AsRef<Path>, limits: SpoolLimits) -> Result<Self, Error> {
@@ -512,6 +529,128 @@ mod tests {
         fs::write(&temporary, b"unfinished write").unwrap();
         assert!(Spool::inspect_existing(&path, limits()).is_err());
         assert_eq!(fs::read(&temporary).unwrap(), b"unfinished write");
+    }
+
+    #[test]
+    fn capability_inspection_matches_writer_health_without_mutation() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().canonicalize().unwrap().join("spool");
+        let spool = Spool::open(&path, limits()).unwrap();
+        for reason in [
+            None,
+            Some(QuarantineReason::Corrupt),
+            Some(QuarantineReason::IdentityMismatch),
+        ] {
+            let id = enqueue(&spool, 1, 100, vec![1, 2, 3]);
+            if let Some(reason) = reason {
+                spool.quarantine(&id, reason).unwrap();
+            }
+        }
+        let snapshot = || {
+            fs::read_dir(&path)
+                .unwrap()
+                .map(|entry| {
+                    let entry = entry.unwrap();
+                    let name = entry.file_name();
+                    let bytes = if name == LOCK {
+                        // The active Windows byte-range lock forbids reading it.
+                        assert_eq!(entry.metadata().unwrap().len(), 0);
+                        Vec::new()
+                    } else {
+                        fs::read(entry.path()).unwrap()
+                    };
+                    (name, bytes)
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let before = snapshot();
+        let expected = spool.doctor().unwrap();
+        let health = Spool::inspect_directory(&spool.directory, limits()).unwrap();
+        assert_eq!(health, expected);
+        assert_eq!(health.spool_entries, 1);
+        assert_eq!(health.quarantined_entries, 2);
+        assert_eq!(health.identity_mismatch_entries, 1);
+        assert_eq!(Spool::inspect_existing(&path, limits()).unwrap(), health);
+        assert_eq!(snapshot(), before);
+        // Borrowing the capability neither consumes it nor releases the writer.
+        assert!(matches!(
+            Spool::open(&path, limits()),
+            Err(Error::AlreadyRunning)
+        ));
+        assert_eq!(spool.doctor().unwrap(), health);
+    }
+
+    #[test]
+    fn capability_inspection_is_bounded_fail_closed_and_does_not_create_a_lock() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().canonicalize().unwrap().join("spool");
+        let directory = PrivateDirectory::create(&path).unwrap();
+        let names = [RecordId::new().unwrap(), RecordId::new().unwrap()]
+            .map(|id| record_name(100, 1, &id, None).unwrap());
+        for name in &names {
+            // Inspection describes inventory; it must not validate/quarantine
+            // these opaque bytes as though it were a payload-integrity check.
+            AtomicFile::create(&directory, name, b"opaque bytes").unwrap();
+        }
+        let original = directory
+            .files(InventoryLimits {
+                max_entries: 8,
+                max_total_bytes: 1024,
+            })
+            .unwrap();
+        let health = Spool::inspect_directory(&directory, limits()).unwrap();
+        assert!(health.healthy);
+        assert_eq!(health.spool_entries, 2);
+        assert_eq!(health.spool_bytes, 24);
+        let mut at_capacity = limits();
+        at_capacity.max_bytes = health.spool_bytes;
+        assert!(
+            !Spool::inspect_directory(&directory, at_capacity)
+                .unwrap()
+                .capacity_remaining
+        );
+        at_capacity.max_bytes -= 1;
+        assert!(Spool::inspect_directory(&directory, at_capacity).is_err());
+        let mut too_few = limits();
+        too_few.max_entries = 1;
+        assert!(matches!(
+            Spool::inspect_directory(&directory, too_few),
+            Err(Error::SpoolFull)
+        ));
+        let mut invalid = limits();
+        invalid.max_entries = 0;
+        assert!(matches!(
+            Spool::inspect_directory(&directory, invalid),
+            Err(Error::InvalidLimits)
+        ));
+        assert!(!path.join(LOCK).exists());
+        for name in &names {
+            assert_eq!(directory.read_bounded(name, 24).unwrap(), b"opaque bytes");
+        }
+        assert_eq!(
+            directory
+                .files(InventoryLimits {
+                    max_entries: 8,
+                    max_total_bytes: 1024
+                })
+                .unwrap()
+                .len(),
+            original.len()
+        );
+        for text in [
+            "unrecognized-file",
+            ".xcsc-atomic-0123456789abcdef0123456789abcdef.tmp",
+        ] {
+            let name = EntryName::new(text).unwrap();
+            AtomicFile::create(&directory, &name, b"evidence").unwrap();
+            assert!(matches!(
+                Spool::inspect_directory(&directory, limits()),
+                Err(Error::InvalidRecord)
+            ));
+            assert_eq!(directory.read_bounded(&name, 24).unwrap(), b"evidence");
+            directory.remove_file(&name).unwrap();
+        }
+        assert!(!path.join(LOCK).exists());
     }
 
     #[test]
