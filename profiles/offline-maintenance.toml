@@ -1,0 +1,8 @@
+format = 1
+id = "offline-maintenance"
+kind = "client"
+formal_targets = ["x86_64-unknown-linux-gnu"]
+http_adapters = []
+web_profiles = []
+required_capabilities = ["private-state", "explicit-paths", "restore-journal", "linux-openat2", "offline-sqlite-maintenance"]
+optional_capabilities = []

@@ -23,11 +23,9 @@ class XcscBoundaryTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        files = [Path("Cargo.toml"), Path("LICENSE")]
-        files.extend(path.relative_to(ROOT) for directory in ["profiles", "schemas"]
-                     for path in (ROOT / directory).iterdir())
-        files.extend(path.relative_to(ROOT) for path in (ROOT / "rust/crates").glob("*/Cargo.toml"))
-        files.extend(path.relative_to(ROOT) for path in (ROOT / "rust/crates").glob("*/LICENSE"))
+        files = [Path("Cargo.toml"), Path("Cargo.lock"), Path("LICENSE")]
+        files.extend(path.relative_to(ROOT) for directory in ["profiles", "schemas", "src"]
+                     for path in (ROOT / directory).rglob("*") if path.is_file())
         for relative in files:
             target = self.root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -36,50 +34,53 @@ class XcscBoundaryTests(unittest.TestCase):
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
 
+    def test_actual_single_package_has_all_client_modules(self) -> None:
+        result = CHECKER.check()
+        self.assertEqual(result["packages"], ["xcsc"])
+        self.assertIn("mobile_ffi", result["modules"])
+        self.assertIn("log", result["modules"])
+
     def test_root_dependency_overrides_cannot_import_product_packages(self) -> None:
         cargo = self.root / "Cargo.toml"
         original = cargo.read_text()
         for section in [
             f'[patch.crates-io]\nproduct = {{ package = "{package}", version = "0.1" }}'
-            for package in ("xcss-product", "xcsc-product")
+            for package in ("xcss-product", "xcsc-product", "xcss")
         ] + [
             f'[replace]\n"{package}:0.1.0" = {{ version = "=1.0.0" }}'
-            for package in ("xcss-product", "xcsc-product")
+            for package in ("xcss-product", "xcsc-product", "xcss")
         ]:
             with self.subTest(section=section):
                 cargo.write_text(original + "\n" + section + "\n")
                 with self.assertRaisesRegex(ConformanceError, "outside client platform"):
                     CHECKER.check()
 
-    def test_workspace_dependencies_resolve_from_the_workspace_root(self) -> None:
-        root_cargo = self.root / "Cargo.toml"
-        original = root_cargo.read_text()
-        version = CHECKER._toml(root_cargo)["workspace"]["package"]["version"]
-        root_cargo.write_text(original + f'''
-[workspace.dependencies.xcsc-secret]
-path = "rust/crates/xcsc-secret"
-version = "={version}"
-''')
-        member_cargo = self.root / "rust/crates/xcsc-secret-envelope/Cargo.toml"
-        member_cargo.write_text(member_cargo.read_text().replace(
-            f'{{ path = "../xcsc-secret", version = "={version}" }}',
-            '{ workspace = true }',
-        ))
-        CHECKER.check()
-        root_cargo.write_text(root_cargo.read_text().replace(
-            'path = "rust/crates/xcsc-secret"',
-            'path = "rust/crates/xcsc-error"',
-        ))
-        with self.assertRaisesRegex(ConformanceError, "escapes client workspace"):
+    def test_a_workspace_facade_cannot_restore_split_packages(self) -> None:
+        cargo = self.root / "Cargo.toml"
+        cargo.write_text(cargo.read_text() + '\n[workspace]\nmembers=["src/secret"]\n')
+        with self.assertRaisesRegex(ConformanceError, "without a workspace facade"):
             CHECKER.check()
 
-    def test_unused_workspace_dependencies_must_stay_inside_foundation(self) -> None:
+    def test_nested_cargo_package_is_forbidden(self) -> None:
+        (self.root / "src/secret/Cargo.toml").write_text('[package]\nname="xcsc-secret"\nversion="1.0.0"\n')
+        with self.assertRaisesRegex(ConformanceError, "independent nested Cargo"):
+            CHECKER.check()
+
+    def test_path_dependencies_are_forbidden(self) -> None:
+        cargo = self.root / "Cargo.toml"
+        cargo.write_text(cargo.read_text() + '\n[target.\'cfg(unix)\'.build-dependencies.local-helper]\npath="../helper"\n')
+        with self.assertRaisesRegex(ConformanceError, "forbids workspace or path"):
+            CHECKER.check()
+
+    def test_unused_target_dependencies_cannot_import_server(self) -> None:
         cargo = self.root / "Cargo.toml"
         original = cargo.read_text()
-        for package in ("xcss-product", "xcsc-product"):
-            with self.subTest(package=package):
-                cargo.write_text(original + f'''\n[workspace.dependencies.{package}]
-version = "0.1.0"
-''')
+        for name, requirement in [
+            ("xcss", 'version="=1.0.0"'),
+            ("server", 'package="xcss"\nversion="=1.0.0"'),
+            ("transport", 'git="https://github.com/isarmg/xcss.git"\nrev="' + "a" * 40 + '"'),
+        ]:
+            with self.subTest(name=name):
+                cargo.write_text(original + f"\n[target.'cfg(unix)'.build-dependencies.{name}]\n" + requirement + "\n")
                 with self.assertRaisesRegex(ConformanceError, "outside client platform"):
                     CHECKER.check()

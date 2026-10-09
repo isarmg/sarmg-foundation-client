@@ -1,6 +1,6 @@
 # 有界子进程捕获
 
-当前源码提供 `xcsc_runtime::process::capture_bounded`。正式消费者须固定实际正式发行的完整 Git revision 和精确 crate 版本；原生 CI 与发行物分别按最终 Source 核验。
+当前源码提供 `xcsc::runtime::process::capture_bounded`。正式消费者须固定实际正式发行的完整 Git revision 和精确 package 版本；原生 CI 与发行物分别按最终 Source 核验。
 
 产品选择要执行的程序与参数；xcsc 不识别 ffprobe、摄像头或具体产品。输入为 `&mut tokio::process::Command` 与 `ProcessLimits { timeout, stdout_bytes, stderr_bytes }`。时间必须在 0–600 秒内且大于零，每个管道预算必须为 1–4 MiB。stdin关闭，stdout/stderr分别限量并发读取，子进程退出码和原始有界输出通过标准 `Output` 返回；非零退出是否属于业务失败由产品判定。
 

@@ -23,6 +23,13 @@ version = "0.5.0"
 '''
 
 class ClientPolicyTests(unittest.TestCase):
+    @staticmethod
+    def write_lock(product: Path, revision: str = "a" * 40) -> None:
+        (product / "Cargo.lock").write_text(
+            'version=4\n[[package]]\nname="xcsc"\nversion="0.5.0"\n'
+            f'source="git+https://github.com/isarmg/xcsc.git?rev={revision}#{revision}"\n'
+        )
+
     def test_business_library_callback_and_risk_test_panics_are_not_mobile_guards(self) -> None:
         component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
         with tempfile.TemporaryDirectory() as directory:
@@ -50,7 +57,7 @@ class ClientPolicyTests(unittest.TestCase):
             for config, source in [
                 ('[lib]\ncrate-type=["cdylib"]\n', 'mod helper;'),
                 ('[lib]\ncrate-type=["staticlib"]\n', 'mod helper;'),
-                ('[dependencies]\nxcsc-mobile-ffi="1.0.0"\n', 'mod helper;'),
+                ('[dependencies]\nxcsc={version="1.0.0",features=["mobile-ffi"]}\n', 'mod helper;'),
                 ('', '#[unsafe(no_mangle)] pub extern "C" fn mobile_entry() {} mod helper;'),
                 ('', '#[export_name="entry"] extern "C" fn entry() {} mod helper;'),
             ]:
@@ -79,41 +86,63 @@ class ClientPolicyTests(unittest.TestCase):
             product = Path(directory)
             (product / "xcsc-client.toml").write_text(VALID_MANIFEST + component)
             cargo = product / "Cargo.toml"
-            valid = 'xcsc-runtime={git="https://github.com/isarmg/xcsc.git",rev="' + 'a' * 40 + '",version="=0.5.0"}'
+            valid = 'xcsc={git="https://github.com/isarmg/xcsc.git",rev="' + 'a' * 40 + '",version="=0.5.0"}'
             cargo.write_text('[dependencies]\n' + valid)
+            self.write_lock(product)
             verify_source(product, ROOT)
             for invalid in [
                 valid.replace('version="=0.5.0"', 'version="=0.4.0"'),
                 valid.replace('version="=0.5.0"', 'version="0.5.0"'),
                 valid.replace('rev="' + 'a' * 40 + '"', 'rev="main"'),
                 valid.replace('/isarmg/', '/another-owner/'),
-                'xcsc-runtime={path="../foundation"}',
-                valid + '\nxcsc-secret={git="https://github.com/isarmg/xcsc.git",rev="' + 'b' * 40 + '",version="=0.5.0"}',
+                'xcsc={path="../client-library"}',
+                valid + '\nsecond={package="xcsc",git="https://github.com/isarmg/xcsc.git",rev="' + 'b' * 40 + '",version="=0.5.0"}',
             ]:
                 with self.subTest(requirement=invalid):
                     cargo.write_text('[dependencies]\n' + invalid)
                     with self.assertRaisesRegex(ConformanceError, "client-source-identity"):
                         verify_source(product, ROOT)
 
-    def test_neutral_logging_is_allowed_only_as_a_pinned_leaf(self) -> None:
+    def test_client_logging_cannot_import_any_server_package(self) -> None:
         component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
         with tempfile.TemporaryDirectory() as directory:
             product = Path(directory)
             (product / "xcsc-client.toml").write_text(VALID_MANIFEST + component)
             cargo = product / "Cargo.toml"
-            valid = 'xcss-log = { git="https://github.com/isarmg/xcss.git", rev="' + ('a' * 40) + '", version="=1.0.0" }'
+            valid = 'xcsc = { git="https://github.com/isarmg/xcsc.git", rev="' + ('a' * 40) + '", version="=0.5.0", features=["tracing"] }'
             cargo.write_text('[dependencies]\n' + valid)
+            self.write_lock(product)
             verify_source(product, ROOT)
             for invalid in [
-                valid.replace('version="=1.0.0"', 'version="1.0.0"'),
-                valid.replace('rev="' + ('a' * 40) + '"', 'rev="main"'),
-                'xcss-log={path="../xcss/rust/crates/xcss-log"}',
-                valid.replace('xcss-log', 'xcss-server-runtime'),
+                'xcss={git="https://github.com/isarmg/xcss.git",rev="' + ('a' * 40) + '",version="=1.0.0"}',
+                'logging={package="xcss",git="https://github.com/isarmg/xcss.git",rev="' + ('a' * 40) + '",version="=1.0.0"}',
+                'xcss={path="../xcss"}',
+                'xcss={version="=1.0.0"}',
             ]:
                 with self.subTest(dependency=invalid):
                     cargo.write_text('[dependencies]\n' + invalid)
                     with self.assertRaisesRegex(ConformanceError, 'client-boundary'):
                         verify_source(product, ROOT)
+
+    def test_resolved_graph_rejects_transitive_server_and_mismatched_client_sources(self) -> None:
+        component = '\n[[components]]\nid="offline"\nprofile="offline-maintenance"\ncapabilities=["private-state", "explicit-paths", "restore-journal", "linux-openat2", "offline-sqlite-maintenance"]\n'
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            (product / "xcsc-client.toml").write_text(VALID_MANIFEST + component)
+            (product / "Cargo.toml").write_text('[dependencies]\nxcsc={git="https://github.com/isarmg/xcsc.git",rev="' + 'a' * 40 + '",version="=0.5.0",features=["offline-maintenance"]}')
+            with self.assertRaisesRegex(ConformanceError, "requires a resolved Cargo.lock"):
+                verify_source(product, ROOT)
+            self.write_lock(product)
+            verify_source(product, ROOT)
+            original = (product / "Cargo.lock").read_text()
+            for package in ('xcss', 'xcss-log', 'xcsc-runtime'):
+                with self.subTest(package=package):
+                    (product / "Cargo.lock").write_text(original + f'[[package]]\nname="{package}"\nversion="1.0.0"\n')
+                    with self.assertRaises(ConformanceError):
+                        verify_source(product, ROOT)
+            self.write_lock(product, "b" * 40)
+            with self.assertRaisesRegex(ConformanceError, "resolved xcsc differs"):
+                verify_source(product, ROOT)
 
     def test_https_consumers_may_use_platform_http_clients(self) -> None:
         manifest = VALID_MANIFEST + '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
@@ -178,6 +207,21 @@ class ClientPolicyTests(unittest.TestCase):
             manifest.write_text((VALID_MANIFEST + component).replace('["."]', '["../"]'))
             with self.assertRaisesRegex(ConformanceError, "escapes product"):
                 verify_manifest(root, ROOT)
+
+    def test_canonical_server_ids_cannot_claim_a_client_profile(self) -> None:
+        component = '\n[[components]]\nid="cli"\nprofile="desktop-client"\ncapabilities=["https-delivery"]\n'
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            manifest = product / "xcsc-client.toml"
+            for identifier in ("xczs", "xsos", "xscs", "xszs", "xcos", "xocs", "xcss", "xabs"):
+                with self.subTest(server=identifier):
+                    manifest.write_text(VALID_MANIFEST.replace("fixture-product", identifier) + component)
+                    with self.assertRaisesRegex(ConformanceError, "client-role"):
+                        verify_manifest(product, ROOT)
+            for identifier in ("xsoc", "xscc", "xszc", "xcoc", "xssc", "xcsc", "fixture-product"):
+                with self.subTest(client=identifier):
+                    manifest.write_text(VALID_MANIFEST.replace("fixture-product", identifier) + component)
+                    self.assertEqual(verify_manifest(product, ROOT)["product_id"], identifier)
 
     def test_dependency_overrides_obey_the_client_boundary(self) -> None:
         component = '\n[[components]]\nid="mobile"\nprofile="mobile-client"\ncapabilities=["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]\n'
@@ -300,7 +344,7 @@ max_spool_entries = 4096
                     with self.assertRaisesRegex(ConformanceError, "client-runtime-ownership"):
                         verify_source(product, ROOT)
             source.write_text(
-                "use xcsc_runtime::retry_jitter;\n"
+                "use xcsc::runtime::retry_jitter;\n"
                 "fn schedule() { retry_jitter(base, 20) }\n"
                 "impl CredentialStore for HostCredentials {}\n",
                 encoding="utf-8",
@@ -353,7 +397,7 @@ capabilities = ["mobile-queue", "mobile-state", "mobile-ffi", "https-delivery"]
                     with self.assertRaisesRegex(ConformanceError, "mobile-ffi-ownership"):
                         verify_source(product, ROOT)
                     source.unlink()
-            (product / "lib.rs").write_text("use xcsc_mobile_ffi::{guard, HandleRegistry};")
+            (product / "lib.rs").write_text("use xcsc::mobile_ffi::{guard, HandleRegistry};")
             (product / "Client.swift").write_text("import CurrentNativeModule")
             verify_source(product, ROOT)
 

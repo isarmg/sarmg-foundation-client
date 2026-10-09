@@ -1,6 +1,6 @@
 # Filesystem handles and publication boundaries
 
-`xcsc-fs-safety` supplies generic file, directory, publication and locking
+`xcsc::fs_safety` supplies generic file, directory, publication and locking
 mechanisms. Products own filenames, payload formats, budgets and recovery policy.
 Unix operations use held directory descriptors. Non-Unix implementations use
 portable path operations and do not provide equivalent Windows handle,

@@ -113,7 +113,7 @@ def main() -> None:
     parser.add_argument("--guard", required=True)
     parser.add_argument("--check", type=Path)
     args = parser.parse_args()
-    source = Path(__file__).resolve().parents[1] / "rust/crates/xcsc-mobile-ffi/src/lib.rs"
+    source = Path(__file__).resolve().parents[1] / "src/mobile_ffi/mod.rs"
     generated = generate(source.read_text(), args.product_source.read_text(), args.guard)
     if args.check:
         if args.check.read_text() != generated:

@@ -1,5 +1,9 @@
 # Current mobile FFI boundary
 
+Enable the `mobile-ffi` feature to import `xcsc::mobile_ffi` from the single
+root package. `jni` enables this feature automatically. The strict C header
+generator reads `src/mobile_ffi/mod.rs`; it accepts no unsupported ABI syntax.
+
 xcsc owns ABI revision 1, panic containment, input and output bounds,
 generational handles, result allocation/release, JNI Unicode validation and
 exception classes. Products own DTOs, storage operations and business state

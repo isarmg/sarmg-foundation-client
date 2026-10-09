@@ -23,8 +23,8 @@ jobs:
       - name: Compile all mobile-profile libraries against Android and iOS platform APIs
         run: |
           # The desktop service CLI (systemctl/launchctl/SCM) is outside the mobile profile.
-          cargo check --locked --workspace --exclude xcsc-cli --all-features --lib --target aarch64-linux-android
-          cargo check --locked --workspace --exclude xcsc-cli --all-features --lib --target aarch64-apple-ios-sim
+          cargo check --locked -p xcsc --all-features --lib --target aarch64-linux-android
+          cargo check --locked -p xcsc --all-features --lib --target aarch64-apple-ios-sim
   apple-storage:
     permissions:
       contents: read
@@ -37,8 +37,8 @@ jobs:
       - run: rustup toolchain install 1.99.0 --profile minimal --component clippy
       - name: Use the canonical OS temporary directory in no-follow path tests
         run: echo "TMPDIR=$(cd "$TMPDIR" && pwd -P)" >> "$GITHUB_ENV"
-      - run: cargo test --locked -p xcsc-cli -p xcsc-fs-safety -p xcsc-mobile-ffi -p xcsc-runtime --all-targets
-      - run: cargo clippy --locked -p xcsc-cli -p xcsc-fs-safety -p xcsc-mobile-ffi -p xcsc-runtime --all-targets -- -D warnings
+      - run: cargo test --locked -p xcsc --all-targets --all-features
+      - run: cargo clippy --locked -p xcsc --all-targets --all-features -- -D warnings
       - run: bash scripts/test-apple-sandbox.sh
   windows-storage:
     permissions:
@@ -51,10 +51,10 @@ jobs:
           persist-credentials: false
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component clippy
-      - name: Test native Windows ACLs, unprivileged access, directory handles and durable spool
-        run: cargo test --locked -p xcsc-cli -p xcsc-fs-safety -p xcsc-runtime --all-targets
+      - name: Test native Windows ACLs, unprivileged access, directory handles, log rotation and durable spool
+        run: cargo test --locked -p xcsc --all-targets --all-features
       - name: Lint native Windows storage
-        run: cargo clippy --locked -p xcsc-cli -p xcsc-fs-safety -p xcsc-runtime --all-targets -- -D warnings
+        run: cargo clippy --locked -p xcsc --all-targets --all-features -- -D warnings
   native-jni:
     permissions:
       contents: read
@@ -73,7 +73,7 @@ jobs:
           java-version: 17.0.20+101
           check-latest: false
       - name: Verify JNI frame, Unicode, byte budgets and exception boundaries on the real JVM
-        run: cargo test --locked -p xcsc-mobile-ffi --features jni native_jvm_keeps_unicode_budgets_pending_exceptions_and_public_errors -- --ignored --nocapture
+        run: cargo test --locked -p xcsc --features jni native_jvm_keeps_unicode_budgets_pending_exceptions_and_public_errors -- --ignored --nocapture
   client:
     permissions:
       contents: read
@@ -90,16 +90,16 @@ jobs:
       - name: Install exact Rust toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt,clippy
       - run: cargo fmt --all -- --check
-      - run: cargo test --locked --workspace --all-targets --all-features
+      - run: cargo test --locked -p xcsc --all-targets --all-features
       - name: Verify readonly root inspection of service-owned spool
         run: |
-          cargo test --locked -p xcsc-runtime --lib --all-features --no-run --message-format=json > "$RUNNER_TEMP/runtime-tests.json"
+          cargo test --locked -p xcsc --lib --all-features --no-run --message-format=json > "$RUNNER_TEMP/runtime-tests.json"
           python3 - <<'PY'
           import json, os, subprocess
           from pathlib import Path
           artifacts = [json.loads(line) for line in (Path(os.environ['RUNNER_TEMP']) / 'runtime-tests.json').read_text().splitlines()]
-          binaries = [item['executable'] for item in artifacts if item.get('reason') == 'compiler-artifact' and item.get('profile', {}).get('test') and item.get('target', {}).get('name') == 'xcsc_runtime' and item.get('executable')]
-          assert len(binaries) == 1, 'expected one exact runtime test binary'
-          subprocess.run(['sudo', binaries[0], '--ignored', '--exact', 'spool::tests::administrative_inspection_reads_service_owned_spool_without_mutation'], check=True)
+          binaries = [item['executable'] for item in artifacts if item.get('reason') == 'compiler-artifact' and item.get('profile', {}).get('test') and item.get('target', {}).get('name') == 'xcsc' and item.get('executable')]
+          assert len(binaries) == 1, 'expected one exact xcsc test binary'
+          subprocess.run(['sudo', binaries[0], '--ignored', '--exact', 'runtime::spool::tests::administrative_inspection_reads_service_owned_spool_without_mutation'], check=True)
           PY
-      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+      - run: cargo clippy --locked -p xcsc --all-targets --all-features -- -D warnings

@@ -1,6 +1,6 @@
 # Client identity and credential ownership
 
-`xcsc-runtime::ClientIdentity` identifies a Client delivery context by
+`xcsc::runtime::ClientIdentity` identifies a Client delivery context by
 product ID, instance ID and payload contract. All three participate in equality.
 Construction requires nonempty ASCII letters, digits, dots, dashes or underscores:
 product IDs are bounded to 128 bytes and instance IDs to 256 bytes. `ContractId`

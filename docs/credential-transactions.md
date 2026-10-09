@@ -1,6 +1,6 @@
 # Credential transactions
 
-`xcsc-runtime` owns `CredentialStore`, `CredentialSnapshot`,
+`xcsc::runtime` owns `CredentialStore`, `CredentialSnapshot`,
 `CredentialAuthorization` and `CredentialMutation`. Products implement storage
 adapters and own revision identities, rotation journals, pairing protocols,
 endpoint bindings and crash recovery.

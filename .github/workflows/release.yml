@@ -28,7 +28,9 @@ jobs:
           python3 - <<'PY'
           import os, subprocess, tomllib
           from pathlib import Path
-          version = tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
+          manifest = tomllib.loads(Path('Cargo.toml').read_text())
+          assert manifest['package']['name'] == 'xcsc' and 'workspace' not in manifest, 'release must contain one client package'
+          version = manifest['package']['version']
           assert os.environ['RELEASE_TAG'] == 'v' + version, 'release tag/version mismatch'
           revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert revision == os.environ['GITHUB_SHA'], 'release source mismatch'

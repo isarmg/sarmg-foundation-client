@@ -1,64 +1,72 @@
 #!/usr/bin/env python3
-"""Validate the independent client workspace and optional product sources."""
+"""Validate the single client-only package and optional product sources."""
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
-from client_policy import ConformanceError, _toml, _walk_dependencies, load_profiles, verify_source
+from client_policy import ConformanceError, SEMVER, _toml, _walk_dependencies, load_profiles, verify_client_lock, verify_source
 
-PACKAGES = {
-    "xcsc-cli", "xcsc-runtime", "xcsc-mobile-ffi", "xcsc-fs-safety",
-    "xcsc-secret", "xcsc-secret-envelope", "xcsc-error",
-    "xcsc-secure-xml",
+MODULES = {
+    "cli", "runtime", "mobile_ffi", "fs_safety", "secret", "secret_envelope",
+    "error", "secure_xml", "log", "contracts", "schema_identity", "state_file", "sqlite",
 }
 
 
-def check_dependencies(manifest: dict, directory: Path, workspace: dict) -> None:
-    version = workspace["package"]["version"]
+def check_dependencies(manifest: dict) -> None:
     for name, requirement in _walk_dependencies(manifest):
-        source_directory = directory
-        if isinstance(requirement, dict) and requirement.get("workspace") is True:
-            requirement = workspace["dependencies"][name]
-            source_directory = ROOT
         package = requirement.get("package", name) if isinstance(requirement, dict) else name
-        if package.startswith(("xcss-", "xcsc-")) and package not in PACKAGES:
-            raise ConformanceError(f"{directory}: dependency outside client platform: {package}")
-        if isinstance(requirement, dict) and "path" in requirement:
-            dependency = (source_directory / requirement["path"]).resolve(strict=True)
-            expected = ROOT.resolve(strict=True) / "rust/crates" / package
-            if package not in PACKAGES or dependency != expected or requirement.get("version") != f"={version}":
-                raise ConformanceError(f"{directory}: dependency escapes client workspace or lacks exact version")
+        if package == "xcss" or package.startswith(("xcss-", "xcsc-")) or package == "xcsc":
+            raise ConformanceError(f"dependency outside client platform: {package}")
+        if isinstance(requirement, dict):
+            if requirement.get("workspace") is True or "path" in requirement:
+                raise ConformanceError("single client package forbids workspace or path dependencies")
+            if "xcss" in str(requirement.get("git", "")):
+                raise ConformanceError("dependency outside client platform: server source")
 
 
 def check() -> dict:
     profiles, _ = load_profiles(ROOT)
     cargo = _toml(ROOT / "Cargo.toml")
-    workspace = cargo["workspace"]
-    members = {f"rust/crates/{name}" for name in PACKAGES}
-    if set(workspace["members"]) != members:
-        raise ConformanceError("workspace: client package set differs")
-    if set(path.parent.name for path in (ROOT / "rust/crates").glob("*/Cargo.toml")) != PACKAGES:
-        raise ConformanceError("workspace: unregistered crate")
-    check_dependencies(cargo, ROOT, workspace)
-    if workspace["package"]["repository"] != "https://github.com/isarmg/xcsc":
-        raise ConformanceError("workspace: repository identity differs")
-    for member in sorted(members):
-        path = ROOT / member
-        manifest = _toml(path / "Cargo.toml")
-        if manifest["package"]["name"] != path.name:
-            raise ConformanceError(f"{path}: package identity differs")
-        if (path / "LICENSE").read_bytes() != (ROOT / "LICENSE").read_bytes():
-            raise ConformanceError(f"{path}: license differs")
-        check_dependencies(manifest, path, workspace)
+    if "workspace" in cargo or "package" not in cargo:
+        raise ConformanceError("xcsc must be one root package, without a workspace facade")
+    package = cargo["package"]
+    if package.get("name") != "xcsc" or package.get("repository") != "https://github.com/isarmg/xcsc":
+        raise ConformanceError("client package identity differs")
+    if not isinstance(package.get("version"), str) or SEMVER.fullmatch(package["version"]) is None:
+        raise ConformanceError("client package version is invalid")
+    ignored = {".git", "target", "node_modules", "dist", "build", ".gradle", "__pycache__"}
+    for directory, directories, files in os.walk(ROOT, followlinks=False):
+        directories[:] = sorted(name for name in directories if name not in ignored)
+        if any((Path(directory) / name).is_symlink() for name in directories):
+            raise ConformanceError("client source directories must not be symlinks")
+        if "Cargo.toml" in files and Path(directory) != ROOT:
+            raise ConformanceError("client package contains an independent nested Cargo package")
+    check_dependencies(cargo)
+    locked_packages = verify_client_lock(ROOT / "Cargo.lock", package["version"])
+    source = (ROOT / "src/lib.rs").read_text()
+    for module in sorted(MODULES):
+        if not (ROOT / "src" / module / "mod.rs").is_file() or f"pub mod {module};" not in source:
+            raise ConformanceError(f"client module missing: {module}")
+    if '#[cfg(not(any(target_os = "android", target_os = "ios")))]\npub mod cli;' not in source:
+        raise ConformanceError("desktop service CLI must stay outside mobile targets")
+    features = cargo.get("features", {})
+    if "mobile-ffi" not in features or not {"mobile-ffi", "dep:jni"} <= set(features.get("jni", [])):
+        raise ConformanceError("JNI must explicitly enable the guarded mobile FFI module")
+    if not {"dep:sqlx", "dep:libsqlite3-sys"} <= set(features.get("offline-maintenance", [])):
+        raise ConformanceError("offline-maintenance must explicitly enable its native SQLite dependencies")
+    for module in ("sqlite", "state_file"):
+        if f'#[cfg(all(target_os = "linux", feature = "offline-maintenance"))]\npub mod {module};' not in source:
+            raise ConformanceError("offline maintenance must remain Linux feature-gated inside the client package")
     schema = json.loads((ROOT / "schemas/xcsc-client.schema.json").read_text())
     if set(schema["properties"]["components"]["items"]["properties"]["profile"]["enum"]) != set(profiles):
         raise ConformanceError("manifest schema Profile enum differs")
-    return {"repository": ROOT.name, "packages": sorted(PACKAGES), "profiles": sorted(profiles)}
+    return {"repository": ROOT.name, "packages": ["xcsc"], "modules": sorted(MODULES), "profiles": sorted(profiles), "locked_packages": locked_packages}
 
 
 def main() -> int:

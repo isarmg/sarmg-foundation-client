@@ -17,7 +17,13 @@
     },
     "product_id": {
       "type": "string",
-      "pattern": "^[a-z][a-z0-9-]{0,62}$"
+      "pattern": "^[a-z][a-z0-9-]{0,62}$",
+      "allOf": [
+        {
+          "if": {"pattern": "^x[a-z]{3}$"},
+          "then": {"pattern": "^x[a-z]{2}c$"}
+        }
+      ]
     },
     "foundation": {
       "type": "object",
@@ -80,7 +86,8 @@
           "profile": {
             "enum": [
               "desktop-client",
-              "mobile-client"
+              "mobile-client",
+              "offline-maintenance"
             ]
           },
           "capabilities": {

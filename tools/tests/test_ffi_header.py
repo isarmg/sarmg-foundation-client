@@ -11,7 +11,7 @@ from ffi_header import generate, integer
 
 class FfiHeaderTests(unittest.TestCase):
     def test_actual_foundation_declarations_generate_current_abi(self) -> None:
-        foundation = (TOOLS.parent / "rust/crates/xcsc-mobile-ffi/src/lib.rs").read_text()
+        foundation = (TOOLS.parent / "src/mobile_ffi/mod.rs").read_text()
         product = 'pub unsafe extern "C" fn sample(input: *const u8, len: usize, output: *mut XcscFfiResultV1) -> i32 { unreachable!() }'
         header = generate(foundation, product, "FIXTURE_FFI_H")
         self.assertIn("#define XCSC_FFI_ABI_REVISION 1u", header)

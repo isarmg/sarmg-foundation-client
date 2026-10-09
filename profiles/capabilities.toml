@@ -51,3 +51,19 @@ state = "current"
 [capabilities.local-web-management]
 owner = "product-adapter"
 state = "current"
+
+[capabilities.explicit-paths]
+owner = "product-adapter"
+state = "current"
+
+[capabilities.restore-journal]
+owner = "product-adapter"
+state = "current"
+
+[capabilities.linux-openat2]
+owner = "product-adapter"
+state = "current"
+
+[capabilities.offline-sqlite-maintenance]
+owner = "foundation"
+state = "current"

@@ -16,10 +16,8 @@ SEMVER = re.compile(
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
 )
 IDENTIFIER = re.compile(r"[a-z][a-z0-9-]{0,62}")
+CANONICAL_PRODUCT_ID = re.compile(r"x[a-z]{3}")
 CLIENT_LIMIT_KEYS = {"max_record_bytes", "max_spool_bytes", "max_spool_entries"}
-# Product consumers may use these portable leaf mechanisms without importing
-# a Server profile. xcsc itself remains independently buildable.
-NEUTRAL_FOUNDATION_PACKAGES = {"xcss-log"}
 EXPORTED_RUST_ABI = re.compile(
     r"#\[\s*(?:unsafe\s*\(\s*)?(?:no_mangle|export_name)\b"
     r'|\bpub(?:\([^)]*\))?\s+(?:unsafe\s+)?extern\s*"(?:C(?:-unwind)?|system)"\s+fn\b'
@@ -153,13 +151,37 @@ def load_profiles(foundation_root: Path) -> tuple[dict[str, dict[str, Any]], set
             _exact_keys(ffi, keys, keys, f"{path}.policy.ffi")
             if any(type(limit) is not int or limit <= 0 for limit in ffi.values()):
                 raise ConformanceError(f"{path}: FFI policy values must be positive integers")
-    if set(profiles) != {"desktop-client", "mobile-client"}:
+    if set(profiles) != {"desktop-client", "mobile-client", "offline-maintenance"}:
         raise ConformanceError("profiles: first-generation profile set is incomplete")
     return profiles, capabilities
 
 
 def load_product_manifest(product_root: Path) -> dict[str, Any]:
     return _toml(product_root / "xcsc-client.toml")
+
+
+def verify_client_lock(path: Path, version: str, revision: str | None = None) -> int:
+    """Inspect the resolved full graph, including renamed transitive packages."""
+    lock = _toml(path)
+    packages = lock.get("package")
+    if not isinstance(packages, list) or any(not isinstance(package, dict) for package in packages):
+        raise ConformanceError("[client-source-identity] Cargo.lock package graph is invalid")
+    client_packages = 0
+    for package in packages:
+        name = package.get("name", "")
+        source = str(package.get("source", ""))
+        if name == "xcss" or name.startswith("xcss-") or "github.com/isarmg/xcss" in source:
+            raise ConformanceError(f"[client-boundary] {path}: transitive server package {name}")
+        if name.startswith("xcsc-"):
+            raise ConformanceError(f"[client-source-identity] {path}: retired split client package {name}")
+        if name == "xcsc":
+            client_packages += 1
+            expected = f"git+https://github.com/isarmg/xcsc.git?rev={revision}#{revision}"
+            if package.get("version") != version or (revision is not None and source != expected):
+                raise ConformanceError(f"[client-source-identity] {path}: resolved xcsc differs from manifest")
+    if client_packages != 1:
+        raise ConformanceError(f"[client-source-identity] {path}: expected exactly one resolved xcsc package")
+    return len(packages)
 
 
 def verify_manifest(product_root: Path, foundation_root: Path) -> dict[str, Any]:
@@ -174,6 +196,8 @@ def verify_manifest(product_root: Path, foundation_root: Path) -> dict[str, Any]
     product_id = manifest["product_id"]
     if manifest["format"] != 1 or not isinstance(product_id, str) or IDENTIFIER.fullmatch(product_id) is None:
         raise ConformanceError("product manifest: invalid format or product_id")
+    if CANONICAL_PRODUCT_ID.fullmatch(product_id) is not None and not product_id.endswith("c"):
+        raise ConformanceError("[client-role] canonical product_id must identify a Client with suffix c")
     foundation = manifest["foundation"]
     if not isinstance(foundation, dict):
         raise ConformanceError("product manifest.foundation: expected a table")
@@ -290,7 +314,7 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
     def owns_mobile_abi(path: Path) -> bool:
         # An ordinary Rust business library may protect SQLite callbacks or
         # test deliberate panics. Only the exported ABI crate and its helper
-        # modules must delegate panic translation to xcsc-mobile-ffi. Check
+        # modules must delegate panic translation to xcsc::mobile_ffi. Check
         # the complete owning crate, so moving a guard to a sibling module or
         # omitting that module from source_roots cannot hide an ABI owner.
         owner = path.parent
@@ -307,9 +331,13 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
         )
         for dependency, requirement in _walk_dependencies(package):
             if isinstance(requirement, dict) and requirement.get("workspace") is True:
-                requirement = workspace.get(dependency, {})
+                inherited = workspace.get(dependency, {})
+                requirement = {**inherited, "features": sorted(set(inherited.get("features", [])) | set(requirement.get("features", [])))} if isinstance(inherited, dict) else inherited
             actual = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-            boundary = boundary or actual == "xcsc-mobile-ffi"
+            boundary = boundary or (
+                actual == "xcsc" and isinstance(requirement, dict)
+                and bool({"mobile-ffi", "jni"} & set(requirement.get("features", [])))
+            )
         if not boundary:
             for directory, directories, files in os.walk(owner, followlinks=False):
                 directories[:] = sorted(
@@ -379,13 +407,11 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
             if isinstance(requirement, dict) and requirement.get("workspace") is True:
                 requirement = workspace.get(dependency, {})
             package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-            if package.startswith("xcss-") and not (
-                package.startswith("xcsc-")
-                or package in {"xcsc-mobile-ffi", "xcsc-secure-xml"}
-                or package in NEUTRAL_FOUNDATION_PACKAGES
-            ):
+            if package == "xcss" or package.startswith("xcss-"):
                 findings.append(f"[client-boundary] {path}: server package {package}")
-            if package.startswith("xcsc-") or package in {"xcsc-mobile-ffi", "xcsc-secure-xml"}:
+            if package.startswith("xcsc-"):
+                findings.append(f"[client-source-identity] {path}: only the monolithic xcsc package may be consumed")
+            if package == "xcsc":
                 if not (
                     isinstance(requirement, dict)
                     and requirement.get("git") == "https://github.com/isarmg/xcsc.git"
@@ -401,18 +427,21 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                     findings.append(f"[client-source-identity] {path}: xcsc packages use different source revisions")
             if isinstance(requirement, dict):
                 source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
-                if "xcss" in source and package not in NEUTRAL_FOUNDATION_PACKAGES:
+                if "xcss" in source:
                     findings.append(f"[client-boundary] {path}: server source dependency")
-                if package in NEUTRAL_FOUNDATION_PACKAGES and not (
-                    requirement.get("git") == "https://github.com/isarmg/xcss.git"
-                    and isinstance(requirement.get("rev"), str)
-                    and re.fullmatch(r"[0-9a-f]{40}", requirement["rev"])
-                    and isinstance(requirement.get("version"), str)
-                    and requirement["version"].startswith("=")
-                    and SEMVER.fullmatch(requirement["version"][1:])
-                    and "path" not in requirement
-                ):
-                    findings.append(f"[client-boundary] {path}: neutral package {package} must pin an official source revision and exact version")
+    lock_path = product_root / "Cargo.lock"
+    if client_revision is not None:
+        if not lock_path.exists():
+            findings.append("[client-source-identity] pinned xcsc dependency requires a resolved Cargo.lock")
+        else:
+            verify_client_lock(lock_path, manifest["foundation"]["version"], client_revision)
+    elif lock_path.exists():
+        # Even a product without a direct xcsc import must not acquire xcss
+        # transitively. Identity is checked when the locked xcsc is declared.
+        for package in _toml(lock_path).get("package", []):
+            name, source = package.get("name", ""), str(package.get("source", ""))
+            if name == "xcss" or name.startswith("xcss-") or "github.com/isarmg/xcss" in source:
+                findings.append(f"[client-boundary] {lock_path}: transitive server package {name}")
     if findings:
         raise ConformanceError("source verification failed:\n" + "\n".join(findings))
     return {"product": manifest["product_id"], "source_files": count, "status": "verified"}
