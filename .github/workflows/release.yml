@@ -1,0 +1,54 @@
+name: Client Foundation Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: verify
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify exact release identity
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 - <<'PY'
+          import os, subprocess, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('Cargo.toml').read_text())['workspace']['package']['version']
+          assert os.environ['RELEASE_TAG'] == 'v' + version, 'release tag/version mismatch'
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert revision == os.environ['GITHUB_SHA'], 'release source mismatch'
+          assert not subprocess.check_output(['git', 'status', '--porcelain']), 'dirty release source'
+          PY
+      - name: Package verified source library
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir "$RUNNER_TEMP/client-release"
+          git archive --format=tar.gz --prefix="xcsc-${RELEASE_TAG}/" --output="$RUNNER_TEMP/client-release/xcsc-${RELEASE_TAG}.tar.gz" "$GITHUB_SHA"
+          cd "$RUNNER_TEMP/client-release"
+          sha256sum "xcsc-${RELEASE_TAG}.tar.gz" > SHA256SUMS
+      - name: Publish source release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Refusing to reuse or overwrite existing release $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" "$RUNNER_TEMP/client-release/"* --verify-tag --title "xcsc ${RELEASE_TAG}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"

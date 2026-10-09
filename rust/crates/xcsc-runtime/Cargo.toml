@@ -1,0 +1,38 @@
+[package]
+name = "xcsc-runtime"
+description = "Client delivery, credential, lifecycle, and authenticated local-status runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+futures-executor.workspace = true
+async-trait.workspace = true
+getrandom.workspace = true
+rand.workspace = true
+xcsc-fs-safety = { path = "../xcsc-fs-safety", version = "=1.0.0" }
+xcsc-secret = { path = "../xcsc-secret", version = "=1.0.0" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["process", "io-util"] }
+uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+rustix.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

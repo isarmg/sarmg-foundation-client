@@ -1,0 +1,53 @@
+format = 1
+
+[capabilities.private-state]
+owner = "foundation"
+state = "current"
+
+[capabilities.bounded-spool]
+owner = "foundation"
+state = "current"
+
+[capabilities.https-delivery]
+owner = "product-adapter"
+state = "current"
+
+[capabilities.doctor]
+owner = "foundation"
+state = "current"
+
+[capabilities.authenticated-local-status]
+owner = "foundation"
+state = "current"
+
+[capabilities.desktop-cli-lifecycle]
+owner = "foundation"
+state = "current"
+
+[capabilities.protected-terminal-input]
+owner = "foundation"
+state = "current"
+
+[capabilities.bounded-xml]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-queue]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-state]
+owner = "foundation"
+state = "current"
+
+[capabilities.mobile-ffi]
+owner = "foundation"
+state = "current"
+
+[capabilities.secret-envelope]
+owner = "foundation"
+state = "current"
+
+[capabilities.local-web-management]
+owner = "product-adapter"
+state = "current"
