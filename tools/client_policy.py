@@ -22,6 +22,9 @@ EXPORTED_RUST_ABI = re.compile(
     r"#\[\s*(?:unsafe\s*\(\s*)?(?:no_mangle|export_name)\b"
     r'|\bpub(?:\([^)]*\))?\s+(?:unsafe\s+)?extern\s*"(?:C(?:-unwind)?|system)"\s+fn\b'
 )
+# The whole owned namespace is Server-only: @xcss/web and every subpath,
+# including retired split packages. Similar third-party scopes are distinct.
+SERVER_WEB_REFERENCE = re.compile(r"(?<![0-9A-Za-z_@-])@xcss/[0-9A-Za-z][0-9A-Za-z._-]*")
 
 
 class ConformanceError(RuntimeError):
@@ -358,6 +361,7 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
         return boundary
 
     cargo_manifests: set[Path] = set()
+    npm_manifests: set[Path] = set()
     for root in source_roots(product_root, manifest):
         for directory, directories, files in os.walk(root, followlinks=False):
             for name in directories:
@@ -369,10 +373,10 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                 path = Path(directory) / name
                 if path.is_symlink():
                     raise ConformanceError(f"{path}: source symlinks are forbidden")
-                if path.suffix in {".rs", ".swift", ".kt", ".js", ".mjs", ".ts", ".tsx", ".html"}:
+                if path.suffix in {".rs", ".swift", ".kt", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".html"}:
                     count += 1
                     source = path.read_text(encoding="utf-8")
-                    if re.search(r"@xcss/(?:admin-web|admin-shell|admin-ui|http-client|contracts|design-tokens|web-fonts|web-toolchain)\b", source):
+                    if SERVER_WEB_REFERENCE.search(source):
                         findings.append(f"[client-boundary] {path}: Server Web package in client UI")
                     for rule, pattern in patterns:
                         if pattern.search(source):
@@ -385,22 +389,27 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                     ):
                         findings.append(f"[mobile-ffi-ownership] {path}: exported ABI panic translation belongs to xcsc")
                 if name == "package.json":
-                    package_json = _json(path)
-                    for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-                        for dependency in package_json.get(section, {}):
-                            if dependency.startswith("@xcss/") and not dependency.startswith("@xcss/client-"):
-                                findings.append(f"[client-boundary] {path}: Server Web dependency {dependency}")
+                    npm_manifests.add(path)
                 if name != "Cargo.toml":
                     continue
                 cargo_manifests.add(path.resolve())
-    # Dependency ownership follows the actual product tree, not its advisory
-    # source_roots list. In particular the workspace/package root manifest
-    # cannot be excluded from this check.
+    # Rust and npm dependency ownership follows the actual product tree, not
+    # its advisory source_roots list. Root and workspace manifests cannot be
+    # excluded from this check.
     for directory, directories, files in os.walk(product_root, followlinks=False):
         directories[:] = sorted(name for name in directories if name not in ignored and not (Path(directory) / name).is_symlink())
         for name in files:
             if name == "Cargo.toml":
                 cargo_manifests.add((Path(directory) / name).resolve())
+            elif name == "package.json":
+                npm_manifests.add(Path(directory) / name)
+    for path in sorted(npm_manifests):
+        package_json = _json(path)
+        for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+            for dependency, requirement in package_json.get(section, {}).items():
+                server_alias = isinstance(requirement, str) and requirement.startswith("npm:@xcss/")
+                if dependency.startswith("@xcss/") or server_alias:
+                    findings.append(f"[client-boundary] {path}: Server Web dependency {dependency}")
     client_revision: str | None = None
     for path in sorted(cargo_manifests):
         for dependency, requirement in _walk_dependencies(_toml(path)):

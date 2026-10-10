@@ -257,13 +257,135 @@ class ClientPolicyTests(unittest.TestCase):
         component = '\n[[components]]\nid="client"\nprofile="desktop-client"\ncapabilities=["private-state", "bounded-spool", "https-delivery", "doctor", "local-web-management"]\n[components.client_limits]\nmax_record_bytes=1\nmax_spool_bytes=1\nmax_spool_entries=1\n'
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "xcsc-client.toml").write_text(VALID_MANIFEST + component)
+            (root / "xcsc-client.toml").write_text(
+                VALID_MANIFEST.replace("fixture-product", "xscc").replace("0.5.0", "1.0.0") + component
+            )
             source = root / "app.js"
             source.write_text("fetch('/state', {method: 'POST'});")
             self.assertEqual(verify_source(root, ROOT)["source_files"], 1)
-            source.write_text("import {AdminClient} from '@xcss/admin-web';")
+            source.write_text("import {AdminClient} from '@xcss/web/admin-web';")
             with self.assertRaisesRegex(ConformanceError, "client-boundary"):
                 verify_source(root, ROOT)
+
+    @staticmethod
+    def write_web_client_manifest(product: Path, source_directory: str = ".") -> None:
+        component = '\n[[components]]\nid="client"\nprofile="desktop-client"\ncapabilities=["private-state", "bounded-spool", "https-delivery", "doctor", "local-web-management"]\n[components.client_limits]\nmax_record_bytes=1\nmax_spool_bytes=1\nmax_spool_entries=1\n'
+        manifest = (VALID_MANIFEST.replace("fixture-product", "xscc")
+            .replace("0.5.0", "1.0.0")
+            .replace('source_roots = ["."]', f'source_roots = ["{source_directory}"]'))
+        (product / "xcsc-client.toml").write_text(manifest + component)
+
+    def test_single_server_web_package_and_every_subpath_are_rejected(self) -> None:
+        specifiers = ["@xcss/web"] + [f"@xcss/web/{module}" for module in (
+            "admin-web", "admin-shell", "admin-ui", "contracts", "design-tokens",
+            "http-client", "web-fonts", "web-toolchain", "contracts/schemas/state",
+            "future-module/deep/path",
+        )]
+        imports = (
+            "import {{AdminClient}} from '{specifier}';",
+            "import '{specifier}';",
+            "export * from '{specifier}';",
+            "const server = require('{specifier}');",
+            "const server = import('{specifier}');",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            source = product / "app.js"
+            for specifier in specifiers:
+                for statement in imports:
+                    with self.subTest(specifier=specifier, statement=statement):
+                        source.write_text(statement.format(specifier=specifier))
+                        with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                            verify_source(product, ROOT)
+
+    def test_server_web_imports_are_checked_in_all_javascript_source_extensions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            for extension in ("js", "mjs", "cjs", "jsx", "ts", "mts", "cts", "tsx", "html"):
+                with self.subTest(extension=extension):
+                    source = product / f"app.{extension}"
+                    source.write_text("import '@xcss/web/admin-shell';")
+                    try:
+                        with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                            verify_source(product, ROOT)
+                    finally:
+                        source.unlink()
+
+    def test_retired_server_web_packages_and_client_aliases_are_rejected(self) -> None:
+        retired = (
+            "admin-web", "admin-shell", "admin-ui", "contracts", "design-tokens",
+            "http-client", "web-fonts", "web-toolchain", "client-state", "client-web",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            source = product / "app.js"
+            for package in retired:
+                with self.subTest(package=package):
+                    source.write_text(f"import '@xcss/{package}';")
+                    with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                        verify_source(product, ROOT)
+
+    def test_all_dependency_sections_reject_server_web_and_retired_client_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            package = product / "package.json"
+            for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+                for dependency in ("@xcss/web", "@xcss/client-web", "@xcss/client-state"):
+                    with self.subTest(section=section, dependency=dependency):
+                        package.write_text(json.dumps({section: {dependency: "1.0.0"}}))
+                        with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                            verify_source(product, ROOT)
+
+    def test_npm_aliases_cannot_hide_the_server_package(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            package = product / "package.json"
+            for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+                for target in ("@xcss/web", "@xcss/client-web"):
+                    with self.subTest(section=section, target=target):
+                        package.write_text(json.dumps({section: {"local-ui": f"npm:{target}@1.0.0"}}))
+                        with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                            verify_source(product, ROOT)
+
+    def test_source_roots_cannot_exclude_root_or_nested_server_web_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            (product / "src").mkdir()
+            (product / "workspace-ui").mkdir()
+            (product / "src/app.js").write_text("fetch('/state');")
+            self.write_web_client_manifest(product, "src")
+            for relative in ("package.json", "workspace-ui/package.json"):
+                with self.subTest(path=relative):
+                    package = product / relative
+                    package.write_text(json.dumps({"dependencies": {"@xcss/web": "1.0.0"}}))
+                    try:
+                        with self.assertRaisesRegex(ConformanceError, "client-boundary"):
+                            verify_source(product, ROOT)
+                    finally:
+                        package.unlink()
+
+    def test_third_party_packages_and_local_client_web_remain_allowed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            product = Path(directory)
+            self.write_web_client_manifest(product)
+            source = product / "app.tsx"
+            source.write_text(
+                "import React from 'react';\n"
+                "import '@xcss-community/web';\n"
+                "import '@other/xcss';\n"
+                "import './web/admin-shell';\n"
+                "fetch('/state', {method: 'POST'});\n"
+            )
+            (product / "package.json").write_text(json.dumps({
+                "dependencies": {"react": "19.2.3", "@xcss-community/web": "1.0.0", "@other/xcss": "1.0.0"},
+                "devDependencies": {"local-ts": "npm:typescript@7.0.2"},
+            }))
+            self.assertEqual(verify_source(product, ROOT)["source_files"], 1)
 
     def test_bounded_spool_limits_are_required_strict_and_cannot_exceed_profile(self) -> None:
         client = '''
