@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import stat
 import tomllib
@@ -22,9 +21,6 @@ EXPORTED_RUST_ABI = re.compile(
     r"#\[\s*(?:unsafe\s*\(\s*)?(?:no_mangle|export_name)\b"
     r'|\bpub(?:\([^)]*\))?\s+(?:unsafe\s+)?extern\s*"(?:C(?:-unwind)?|system)"\s+fn\b'
 )
-# The whole owned namespace is Server-only: @xcss/web and every subpath,
-# including retired split packages. Similar third-party scopes are distinct.
-SERVER_WEB_REFERENCE = re.compile(r"(?<![0-9A-Za-z_@-])@xcss/[0-9A-Za-z][0-9A-Za-z._-]*")
 
 
 class ConformanceError(RuntimeError):
@@ -48,15 +44,6 @@ def _toml(path: Path) -> dict[str, Any]:
     return value
 
 
-def _json(path: Path) -> dict[str, Any]:
-    _regular_file(path)
-    try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (UnicodeError, json.JSONDecodeError) as error:
-        raise ConformanceError(f"{path}: invalid UTF-8 JSON: {error}") from error
-    if not isinstance(value, dict):
-        raise ConformanceError(f"{path}: expected an object")
-    return value
 
 
 def _exact_keys(value: dict[str, Any], allowed: set[str], required: set[str], context: str) -> None:
@@ -173,8 +160,6 @@ def verify_client_lock(path: Path, version: str, revision: str | None = None) ->
     for package in packages:
         name = package.get("name", "")
         source = str(package.get("source", ""))
-        if name == "xcss" or name.startswith("xcss-") or "github.com/isarmg/xcss" in source:
-            raise ConformanceError(f"[client-boundary] {path}: transitive server package {name}")
         if name.startswith("xcsc-"):
             raise ConformanceError(f"[client-source-identity] {path}: retired split client package {name}")
         if name == "xcsc":
@@ -361,7 +346,6 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
         return boundary
 
     cargo_manifests: set[Path] = set()
-    npm_manifests: set[Path] = set()
     for root in source_roots(product_root, manifest):
         for directory, directories, files in os.walk(root, followlinks=False):
             for name in directories:
@@ -376,8 +360,6 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                 if path.suffix in {".rs", ".swift", ".kt", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".html"}:
                     count += 1
                     source = path.read_text(encoding="utf-8")
-                    if SERVER_WEB_REFERENCE.search(source):
-                        findings.append(f"[client-boundary] {path}: Server Web package in client UI")
                     for rule, pattern in patterns:
                         if pattern.search(source):
                             findings.append(f"[{rule}] {path}: product redefines client platform mechanics")
@@ -388,12 +370,10 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                         and owns_mobile_abi(path)
                     ):
                         findings.append(f"[mobile-ffi-ownership] {path}: exported ABI panic translation belongs to xcsc")
-                if name == "package.json":
-                    npm_manifests.add(path)
                 if name != "Cargo.toml":
                     continue
                 cargo_manifests.add(path.resolve())
-    # Rust and npm dependency ownership follows the actual product tree, not
+    # Rust dependency identity follows the actual product tree, not
     # its advisory source_roots list. Root and workspace manifests cannot be
     # excluded from this check.
     for directory, directories, files in os.walk(product_root, followlinks=False):
@@ -401,23 +381,12 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
         for name in files:
             if name == "Cargo.toml":
                 cargo_manifests.add((Path(directory) / name).resolve())
-            elif name == "package.json":
-                npm_manifests.add(Path(directory) / name)
-    for path in sorted(npm_manifests):
-        package_json = _json(path)
-        for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
-            for dependency, requirement in package_json.get(section, {}).items():
-                server_alias = isinstance(requirement, str) and requirement.startswith("npm:@xcss/")
-                if dependency.startswith("@xcss/") or server_alias:
-                    findings.append(f"[client-boundary] {path}: Server Web dependency {dependency}")
     client_revision: str | None = None
     for path in sorted(cargo_manifests):
         for dependency, requirement in _walk_dependencies(_toml(path)):
             if isinstance(requirement, dict) and requirement.get("workspace") is True:
                 requirement = workspace.get(dependency, {})
             package = requirement.get("package", dependency) if isinstance(requirement, dict) else dependency
-            if package == "xcss" or package.startswith("xcss-"):
-                findings.append(f"[client-boundary] {path}: server package {package}")
             if package.startswith("xcsc-"):
                 findings.append(f"[client-source-identity] {path}: only the monolithic xcsc package may be consumed")
             if package == "xcsc":
@@ -434,23 +403,12 @@ def verify_source(product_root: Path, foundation_root: Path) -> dict[str, Any]:
                     client_revision = requirement["rev"]
                 elif client_revision != requirement["rev"]:
                     findings.append(f"[client-source-identity] {path}: xcsc packages use different source revisions")
-            if isinstance(requirement, dict):
-                source = str(requirement.get("path", "")) + str(requirement.get("git", ""))
-                if "xcss" in source:
-                    findings.append(f"[client-boundary] {path}: server source dependency")
     lock_path = product_root / "Cargo.lock"
     if client_revision is not None:
         if not lock_path.exists():
             findings.append("[client-source-identity] pinned xcsc dependency requires a resolved Cargo.lock")
         else:
             verify_client_lock(lock_path, manifest["foundation"]["version"], client_revision)
-    elif lock_path.exists():
-        # Even a product without a direct xcsc import must not acquire xcss
-        # transitively. Identity is checked when the locked xcsc is declared.
-        for package in _toml(lock_path).get("package", []):
-            name, source = package.get("name", ""), str(package.get("source", ""))
-            if name == "xcss" or name.startswith("xcss-") or "github.com/isarmg/xcss" in source:
-                findings.append(f"[client-boundary] {lock_path}: transitive server package {name}")
     if findings:
         raise ConformanceError("source verification failed:\n" + "\n".join(findings))
     return {"product": manifest["product_id"], "source_files": count, "status": "verified"}

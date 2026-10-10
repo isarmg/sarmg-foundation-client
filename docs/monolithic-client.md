@@ -2,8 +2,7 @@
 
 xcsc 的 Rust 部分只有根目录一个 package `xcsc`、一个 `Cargo.toml` 和一个
 `Cargo.lock`。`src/lib.rs` 直接导出下表模块，不通过 workspace 包装独立子包，
-也没有内部 path dependency。Server 基础库 xcss 只支持 Linux x86_64，两个
-上游互不依赖。Windows、macOS、Android 与 iOS Client 从本仓库获取所需能力。
+也没有内部 path dependency。Windows、macOS、Android 与 iOS Client 从本仓库获取所需能力。
 
 | 模块 | 作用与边界 |
 |---|---|
@@ -21,10 +20,11 @@ xcsc 的 Rust 部分只有根目录一个 package `xcsc`、一个 `Cargo.toml` �
 | `xcsc::state_file` | Linux 离线 Client 对现有服务私有目录和维护锁的受控操作 |
 | `xcsc::sqlite` | Linux 离线 Client 的直接 SQLite 连接、原生预算、防御模式与当前 schema 验证；没有 pool、Server 生命周期或业务迁移 |
 
-`state_file` 维护现行服务数据时保留 `.xcss-*` 锁文件身份，schema 验证保留
-服务端 `product_metadata` 合同。它们是被维护数据的协议身份，不是对 xcss
-代码包的依赖。具体升级定义、恢复 journal、服务停止策略与业务 SQL 由 xssc
-拥有。Client 自身日志用 `LogRecord::client` 和 `scope=client`；离线查询仍能读取
+`state_file` 使用中立文件名 `.state-instance.lock`、`.state-maintenance.lock`
+和 `.state-maintenance-pending.json`，校验当前元数据及精确 schema 指纹。
+不保留旧文件名兼容、fallback 或自动迁移。部署新格式前必须停止旧服务、备份
+配置和数据并重新部署；不得混用旧目录。具体升级定义、恢复 journal、服务停止
+策略与业务 SQL 由 xssc 拥有。Client 自身日志用 `LogRecord::client` 和 `scope=client`；离线查询仍能读取
 既有 `scope=server` 记录并保持其身份。
 
 维护及实例 flock 在取得后立即由私有 RAII guard 持有，后续身份检查失败和
@@ -53,8 +53,8 @@ xcsc 的 Rust 部分只有根目录一个 package `xcsc`、一个 `Cargo.toml` �
 产品固定 `package=xcsc`、精确 `=1.0.0` 和正式发布的完整官方 Git revision，
 通过 `xcsc::<module>` 导入。消费清单 `xcsc-client.toml` 使用 `desktop-client`、
 `mobile-client` 或 `offline-maintenance` Profile。根门禁拒绝子 Cargo package、
-workspace 外壳和 xcss 依赖；消费门禁同时核对所有 manifest、别名、target、
-patch/replace 与实际 Cargo.lock，拒绝传递 xcss 依赖和已拆除的 Client 子包。
+workspace 外壳；消费门禁核对所有 manifest、别名、target、patch/replace
+与实际 Cargo.lock，要求唯一官方 xcsc 包、精确版本和完整 Git revision。
 规范四字母 `product_id` 必须以 `c` 结尾；xczs、xsos、xscs、xszs、xcos、xocs
 等 Server 不能通过声明 Client Profile 消费本库。非规范名称的通用测试 fixture
 仍使用其原标识，不伪装成正式产品。

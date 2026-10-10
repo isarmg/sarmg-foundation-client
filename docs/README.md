@@ -5,7 +5,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [xcsc 边界](xcsc-boundary.md) | Server xcss、Client xcsc 与产品 Adapter 的职责 |
+| [xcsc 边界](xcsc-boundary.md) | Client xcsc 与产品 Adapter 的职责 |
 | [单体 Client](monolithic-client.md) | 唯一根 Cargo package、模块映射、features、离线工具和验证命令 |
 | [Client Web 边界](client-web.md) | 按被管理对象划分 Web 所属，以及当前无本机 Web 消费者的事实 |
 | [有界子进程捕获](bounded-process.md) | 双管道限量读取、超时、杀进程与回收、平台验证范围 |

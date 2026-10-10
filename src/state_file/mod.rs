@@ -20,11 +20,11 @@ use thiserror::Error;
 
 pub const PRIVATE_DIRECTORY_MODE: u32 = 0o700;
 pub const PRIVATE_FILE_MODE: u32 = 0o600;
-pub const INSTANCE_LOCK_FILE: &str = ".xcss-instance.lock";
-pub const MAINTENANCE_LOCK_FILE: &str = ".xcss-maintenance.lock";
+pub const INSTANCE_LOCK_FILE: &str = ".state-instance.lock";
+pub const MAINTENANCE_LOCK_FILE: &str = ".state-maintenance.lock";
 /// Durable maintenance intent. Its presence prevents normal startup even
 /// after a crashed maintainer has released its advisory lock.
-pub const MAINTENANCE_PENDING_FILE: &str = ".xcss-maintenance-pending.json";
+pub const MAINTENANCE_PENDING_FILE: &str = ".state-maintenance-pending.json";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FileIdentity {

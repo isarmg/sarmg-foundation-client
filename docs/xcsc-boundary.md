@@ -1,12 +1,11 @@
-# xcss、xcsc 与产品边界
+# xcsc 与产品边界
 
-xcss 与 xcsc 两个仓库都是构建期上游，不是产品功能的集中仓库，也不在生产环境形成中央服务。它们互不依赖；产品分别锁定所需公共库的精确版本和 Git revision。
+xcsc 是构建期 Client 上游，不是产品功能的集中仓库，也不在生产环境形成中央服务。产品固定公共库的精确版本和完整 Git revision。
 
-Client 使用 `xcsc::log` 获取结构化事件、UTC 时间、脱敏和有界日志查询/输出，日志层为 `xcsc::log::XcscStructuredLayer`。这些实现及必要错误原语直接属于 xcsc 单体。所有 Client（包括 Linux 离线升级工具 xssc）都不得直接或传递依赖 xcss；不存在中立日志包例外。xcss 仅供 Linux x86_64 Server 使用。
+Client 使用 `xcsc::log` 获取结构化事件、UTC 时间、脱敏和有界日志查询/输出，日志层为 `xcsc::log::XcscStructuredLayer`。这些实现及必要错误原语直接属于 xcsc 单体。Linux 离线升级工具 xssc 使用同一 Client 包内的显式维护 feature。
 
 | 所属 | 应负责 | 不应负责 |
 |---|---|---|
-| xcss | Server 进程、管理 Server 的 Web、管理员认证、HTTP/数据库/文件安全原语、通用管理 UI 和服务端发布工具 | Client 本机状态、移动 FFI、产品实例/设备/硬件 DTO、产品配对协议和产品页面 |
 | xcsc | 桌面、移动及离线 Client 的运行时、Spool、文件与秘密安全、便携日志、原生终端输入、服务生命周期、本机只读状态通道和移动 FFI | 产品配对 wire、远端 API 状态解释、产品错误码及恢复文案、本机第三方服务策略和管理 Server 的 Web |
 | 产品仓库 | 业务 DTO、端点、状态机、错误码、恢复步骤、业务页面、业务安全加强和产品发布验收 | 复制 xcsc 已发布的实现并维护第二事实源 |
 
@@ -22,9 +21,8 @@ Client 使用 `xcsc::log` 获取结构化事件、UTC 时间、脱敏和有界�
 
 Profile 也不能把某个产品架构冒充通用要求。`desktop-client` 只要求产品提供 HTTPS 投递 Adapter；Spool、xcsc 私有状态、Doctor、完整服务生命周期和受保护终端输入均按实际采用情况显式声明。实时流 Client 根据实际采用的机制声明能力。
 
-通用机制还必须由实际层级承载。`xcsc::secure_xml` 提供 Client 侧与产品无关的解析预算；业务 XML 协议、命名空间、设备字段和具体预算值由产品定义。Client 不得反向依赖 xcss。
+通用机制还必须由实际层级承载。`xcsc::secure_xml` 提供 Client 侧与产品无关的解析预算；业务 XML 协议、命名空间、设备字段和具体预算值由产品定义。
 
-Server 侧内容块也只保留在 `@xcss/admin-ui`：公共包提供可覆盖的布局、样式和无障碍原语；实例统计、授权码、CPU/GPU/SSD/RAM、摄像头和 Sunshine 控制仍由产品 Web 定义。消费者只导入发布包，不保存内容块 CSS 副本。
 
 xcsc 本仓库只有一个根 package，没有 workspace 外壳、独立子 Cargo package 或内部 path 依赖。仓库检查覆盖所有目标平台依赖及 Cargo `patch`/`replace`。产品自身可有业务 workspace；消费检查解析其 workspace 继承、别名和所有 Cargo 清单，要求唯一官方 xcsc package、精确版本及完整 Git revision，不能通过 `source_roots` 排除依赖检查。
 

@@ -45,10 +45,10 @@ class XcscBoundaryTests(unittest.TestCase):
         original = cargo.read_text()
         for section in [
             f'[patch.crates-io]\nproduct = {{ package = "{package}", version = "0.1" }}'
-            for package in ("xcss-product", "xcsc-product", "xcss")
+            for package in ("xcsc-product",)
         ] + [
             f'[replace]\n"{package}:0.1.0" = {{ version = "=1.0.0" }}'
-            for package in ("xcss-product", "xcsc-product", "xcss")
+            for package in ("xcsc-product",)
         ]:
             with self.subTest(section=section):
                 cargo.write_text(original + "\n" + section + "\n")
@@ -71,16 +71,3 @@ class XcscBoundaryTests(unittest.TestCase):
         cargo.write_text(cargo.read_text() + '\n[target.\'cfg(unix)\'.build-dependencies.local-helper]\npath="../helper"\n')
         with self.assertRaisesRegex(ConformanceError, "forbids workspace or path"):
             CHECKER.check()
-
-    def test_unused_target_dependencies_cannot_import_server(self) -> None:
-        cargo = self.root / "Cargo.toml"
-        original = cargo.read_text()
-        for name, requirement in [
-            ("xcss", 'version="=1.0.0"'),
-            ("server", 'package="xcss"\nversion="=1.0.0"'),
-            ("transport", 'git="https://github.com/isarmg/xcss.git"\nrev="' + "a" * 40 + '"'),
-        ]:
-            with self.subTest(name=name):
-                cargo.write_text(original + f"\n[target.'cfg(unix)'.build-dependencies.{name}]\n" + requirement + "\n")
-                with self.assertRaisesRegex(ConformanceError, "outside client platform"):
-                    CHECKER.check()

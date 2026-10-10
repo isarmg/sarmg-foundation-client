@@ -4,7 +4,7 @@ xcsc `1.0.0` 为桌面、移动和离线 Client 提供共享的安全基础能�
 
 1.0.0 修复继承屏蔽的子进程退出信号时有界捕获和回收停滞的问题，并允许 Unix root 管理员只读检查服务账户持有的私有 spool。当前 C ABI 为修订 1，导出结果类型和释放函数均使用 `V1` / `_v1` 身份。Rust 固定 1.99.0。详见 [发行说明](docs/releases/1.0.0.md) 和 [unsafe 审查](docs/unsafe-audit.md)。
 
-本仓库只负责 Client 侧基础设施。日志和错误原语由本仓库独立提供，不依赖 xcss。Linux x86_64 Server 管理能力由 [xcss](https://github.com/isarmg/xcss) 提供；两个上游互不依赖，各自构建和发布。
+本仓库只负责 Client 侧基础设施。日志和错误原语由本仓库独立提供，源码、测试和发布均由本仓库维护。
 
 ## 部署入口
 
@@ -46,7 +46,7 @@ cargo clippy --locked -p xcsc --all-targets --all-features -- -D warnings
 ## 文档
 
 - [文档总览](docs/README.md)
-- [xcsc/xcss 与产品边界](docs/xcsc-boundary.md)
+- [xcsc 与产品边界](docs/xcsc-boundary.md)
 - [单体模块、Features 与验证](docs/monolithic-client.md)
 - [桌面队列与投递](docs/client-spool.md)
 - [身份与凭据](docs/client-identity.md)

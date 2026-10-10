@@ -21,13 +21,11 @@ MODULES = {
 def check_dependencies(manifest: dict) -> None:
     for name, requirement in _walk_dependencies(manifest):
         package = requirement.get("package", name) if isinstance(requirement, dict) else name
-        if package == "xcss" or package.startswith(("xcss-", "xcsc-")) or package == "xcsc":
+        if package.startswith("xcsc-") or package == "xcsc":
             raise ConformanceError(f"dependency outside client platform: {package}")
         if isinstance(requirement, dict):
             if requirement.get("workspace") is True or "path" in requirement:
                 raise ConformanceError("single client package forbids workspace or path dependencies")
-            if "xcss" in str(requirement.get("git", "")):
-                raise ConformanceError("dependency outside client platform: server source")
 
 
 def check() -> dict:
