@@ -1,120 +1,52 @@
-# Filesystem handles and publication boundaries
+# 文件系统句柄与发布边界
 
-`xcsc::fs_safety` supplies generic file, directory, publication and locking
-mechanisms. Products own filenames, payload formats, budgets and recovery policy.
-Unix operations use held directory descriptors. Non-Unix implementations use
-portable path operations and do not provide equivalent Windows handle,
-reparse-point or ACL guarantees.
+`xcsc::fs_safety` 提供通用的文件、目录、发布和锁机制。产品负责文件名、载荷格式、预算及恢复策略。Unix 操作使用已持有的目录描述符；Windows 私有状态使用原生句柄，并校验重解析点及 ACL，具体策略见 [Windows 私有状态](windows-private-state.md)。其他平台的可移植路径实现不具备同等的 Windows 句柄和权限保证。
 
-## Private state and administration
+## 私有状态与管理访问
 
-`PrivateDirectory::create` requires an absolute path, walks existing ancestors
-without following symlinks, and creates only the final directory as 0700. The
-final directory must belong to the effective user with exact 0700 permissions.
-Existing metadata is validated without repair. Parent and new-directory sync
-complete creation.
+Unix 上，`PrivateDirectory::create` 要求绝对路径，遍历已有祖先时不跟随符号链接，只将最后一级目录创建为 0700。最终目录必须属于有效用户，且权限精确为 0700。已有元数据只校验、不修复；同步父目录和新目录后完成创建。
 
-`open_existing` checks the same owner and permissions without creating or syncing
-state. `open_for_administration` and `create_for_administration` also allow Unix
-root to access service-owned 0700 state. The product must select a trusted state
-path and authorize the operation. No entry point creates missing ancestors.
+`open_existing` 校验相同的属主和权限，不创建或同步状态。`open_for_administration` 和 `create_for_administration` 还允许 Unix root 访问服务拥有的 0700 状态。产品必须选择可信状态路径并授权操作。各入口均不创建缺失的祖先目录。
 
-`EntryName` represents one canonical filename. `create_child`, `files`,
-`read_bounded`, `read_private_bounded` and `remove_file` operate relative to the
-held Unix descriptor. Replacing the external pathname cannot redirect them.
-`path` and `resolve` provide diagnostic paths, not capabilities for mutations.
+`EntryName` 表示一个规范文件名。`create_child`、`files`、`read_bounded`、`read_private_bounded` 和 `remove_file` 相对于已持有的 Unix 描述符操作；外部路径被替换不会改变目标。`path` 和 `resolve` 提供诊断用路径，不提供状态变更能力。
 
-`read_private_bounded` requires a regular, single-linked 0600 file with the held
-directory's uid/gid. It checks length before allocation and caps streaming reads
-at the budget plus one sentinel byte. Links, special files, unsafe metadata and
-oversized files are errors. Reads do not create files or acquire writer locks.
+`read_private_bounded` 要求普通文件、单一硬链接、0600 权限，以及与已持有目录一致的 uid/gid。分配前检查长度，流式读取最多接受预算加一个哨兵字节。链接、特殊文件、不安全元数据和超限文件均返回错误。读取不创建文件，也不获取写锁。
 
-## Atomic publication and locking
+## 原子发布与锁
 
-`AtomicFile::replace` writes and syncs a private temporary, publishes it within
-the held directory, checks the published inode and syncs the parent.
-`AtomicFile::create` uses no-clobber publication. A collision preserves the
-occupant. Newly created files, locks and private children inherit the parent's
-uid/gid. Private files and locks use mode 0600.
+`AtomicFile::replace` 写入并同步私有临时文件，在已持有目录内发布，检查发布后的 inode，再同步父目录。`AtomicFile::create` 使用不覆盖发布；冲突时保留原有文件。Unix 上新建文件、锁和私有子目录继承父目录的 uid/gid，私有文件及锁使用 0600 权限。
 
-A failure after publication does not prove rollback. In particular,
-`PublishedDurabilityUnknown` reports a publication whose parent sync failed.
-Callers apply their recovery policy before retrying. Temporary names use the
-exact namespace recognized by `AtomicFile::is_temporary_name`; cleanup requires
-exclusive application ownership.
+发布后的失败不证明已经回滚。尤其是 `PublishedDurabilityUnknown`，表示发布完成但父目录同步失败。调用方必须先依据恢复策略处理，再决定是否重试。临时名称使用 `AtomicFile::is_temporary_name` 识别的精确命名空间，清理前必须拥有应用排他的目录访问权。
 
-`NoClobberPublish::publish` accepts a private directory and two typed names.
-It requires a regular, single-linked source. Linux uses `RENAME_NOREPLACE` and
-fails when the filesystem does not support it. Other Unix targets use link,
-parent sync, unlink and parent sync. A failure can retain both source and
-published evidence.
+`NoClobberPublish::publish` 接收私有目录及两个类型化名称，源文件必须是普通文件且只有一个硬链接。Linux 使用 `RENAME_NOREPLACE`，文件系统不支持时返回失败。其他 Unix 目标依次执行链接、父目录同步、取消源链接和再次同步父目录。失败时可能同时保留源文件及已发布证据。
 
-`AdvisoryLock::acquire` is nonblocking; `acquire_waiting` serializes short
-synchronous transactions. Existing lock files must be regular, single-linked,
-0600 and owned by the directory's uid/gid. Waiting acquisition rechecks metadata
-and directory-entry identity before returning. On Unix, guard release explicitly
-unlocks the independently opened file description before closing the handle,
-so a duplicate inherited between fork and exec cannot extend its lock lifetime.
-Post-acquisition validation and sync errors use the same release path. Release
-retains the stable lock inode. Keep network I/O outside the lock lifetime.
+`AdvisoryLock::acquire` 不阻塞；`acquire_waiting` 用于将短时同步事务串行执行。Unix 上已有锁文件必须是普通文件、单一硬链接、0600 权限，且 uid/gid 与目录一致。等待获取锁的入口在返回前重新校验元数据和目录项身份。释放守卫时，Unix 会先显式解锁独立打开的文件描述，再关闭句柄，防止 fork 与 exec 之间继承的重复描述符延长锁的生命周期。获取后的校验或同步错误也使用同一释放路径。释放保留稳定的锁 inode。网络 I/O 应放在持锁期间之外。
 
-These APIs require an application-owned namespace. Advisory locks coordinate
-cooperating processes; they do not protect against a malicious process running
-as the same OS user.
+上述 API 要求应用拥有其命名空间。建议锁用于协调遵守规则的进程，不能防御以同一操作系统用户运行的恶意进程。
 
-## Configuration and protected inputs
+## 配置与受保护输入
 
-`ConfigurationDirectory` accepts existing Unix directories with mode 0700, 0750
-or 0755, owned by root or the effective user. Root may administer a service-owned
-directory. All ancestors are opened without following links. This API does not
-create parents or repair permissions.
+`ConfigurationDirectory` 接受已有 Unix 目录，权限只能是 0700、0750 或 0755，属主为 root 或有效用户；root 也可管理服务拥有的目录。打开所有祖先时均不跟随链接。此 API 不创建父目录，也不修复权限。
 
-Configuration reads require a regular, single-linked 0600 or 0640 file and enforce
-the supplied byte limit before allocation and while reading. Replacement holds
-the opened file through publication, preserves uid/gid/mode, and rechecks its
-identity and metadata. Missing files are created with mode 0600 and the directory's
-uid/gid using no-clobber publication. Callers serialize configuration updates.
+配置读取要求普通文件、单一硬链接，权限为 0600 或 0640，并在分配前及读取期间执行调用方提供的字节上限。替换时持有已打开文件至发布结束，保留 uid/gid/权限，并重新校验身份及元数据。缺失文件通过不覆盖发布创建，权限为 0600，uid/gid 与目录一致。调用方负责将配置更新串行执行。
 
-`read_input_bounded` accepts an explicit `InputVisibility`. It rejects links,
-special files, group/other writes and special mode bits. The owner must be root,
-the effective user or the protected directory's owner.
+`read_input_bounded` 接收显式的 `InputVisibility`，拒绝链接、特殊文件、组或其他用户可写文件以及特殊权限位。属主必须是 root、有效用户或受保护目录的属主。
 
-| Visibility | Accepted Unix file modes |
+| 可见性 | 允许的 Unix 文件权限 |
 |---|---|
 | `Confidential` | 0400, 0440, 0600, 0640 |
 | `Public` | 0400, 0440, 0444, 0600, 0640, 0644 |
 
-Products select visibility and size limits, validate certificate or key contents,
-and handle secret storage. `SecretBytes`, `SecretString` and `SecretWriter` provide
-zeroizing owned buffers, redacted formatting and bounded serialization.
-`SecretWriter` reserves its byte budget before accepting data and rejects overflow
-without reallocating populated storage. These types do not erase external parser,
-HTTP-library, kernel or persistent copies. Product serializers explicitly opt in
-to exposing secret values.
+产品选择可见性和大小上限，验证证书或密钥内容，并负责秘密存储。`SecretBytes`、`SecretString` 和 `SecretWriter` 提供释放时清零的自有缓冲区、脱敏格式化和有界序列化。`SecretWriter` 接收数据前先预留字节预算，超限时拒绝，不重新分配已经包含秘密的存储。这些类型不会擦除外部解析器、HTTP 库、内核或持久存储中的副本。产品序列化器必须显式选择是否暴露秘密值。
 
-## Inventory and Linux rooted filesystems
+## 清单扫描与 Linux 目录锚定文件系统
 
-Inventory uses descriptor-relative Unix traversal, validates pre/post-open
-identity and rejects symlinks, special files and multiply-linked files. Entry,
-byte and 128-directory-depth budgets bound traversal. Depth-first traversal
-bounds simultaneous directory handles independently of directory width.
-File/parent sync also rejects unsafe file types and multiple links.
+清单扫描使用相对于 Unix 描述符的遍历，检查打开前后的身份，并拒绝符号链接、特殊文件和多硬链接文件。条目数、字节数及 128 层目录深度预算共同限制遍历。深度优先遍历限制同时持有的目录句柄数，不受目录宽度影响。文件及父目录同步同样拒绝不安全文件类型和多硬链接。
 
-Linux `OpenAt2Root` validates its initial directory and probes `openat2`.
-`MountPolicy` explicitly controls cross-mount access. `open_file` accepts only
-single-linked regular files and rejects symlinks in all components; nonblocking
-opens prevent FIFO probes from hanging. `FileIdentity` and
-`SingleLinkRequirement` describe opened objects. The Linux directory
-`AdvisoryLock` locks the held root descriptor. Missing required kernel primitives
-produce an error.
+Linux `OpenAt2Root` 校验初始目录并探测 `openat2`。`MountPolicy` 显式控制是否允许跨挂载点访问。`open_file` 只接受单硬链接普通文件，并拒绝所有路径组件中的符号链接；非阻塞打开避免探测 FIFO 时挂起。`FileIdentity` 和 `SingleLinkRequirement` 描述已打开对象。Linux 目录 `AdvisoryLock` 锁定已持有的根目录描述符。缺少必需的内核原语时返回错误。
 
-## Verification
+## 验证范围
 
-xcsc tests cover unsafe metadata, budget overflow, links, special files,
-publication collisions, lock contention and directory rebinding. Privileged Linux
-tests also verify root-created state/configuration remains accessible to its
-service uid/gid. Non-root runs cannot exercise that privilege case.
+xcsc 测试覆盖不安全元数据、预算溢出、链接、特殊文件、发布冲突、锁争用和目录重新绑定。Linux 特权测试还验证 root 创建的状态及配置仍能被服务 uid/gid 访问；非 root 执行不能覆盖此特权场景。
 
-Native macOS execution, Windows filesystem guarantees and each product's staging,
-publication and recovery paths require platform-specific acceptance evidence.
-Passing xcsc Linux tests establishes only their exercised boundaries.
+macOS 原生执行、Windows 文件系统保证，以及各产品的暂存、发布和恢复路径，都需要对应平台的验收证据。xcsc 的 Linux 测试通过，只能证明这些测试实际覆盖的边界。

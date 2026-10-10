@@ -1,161 +1,53 @@
-# Current Client spool
+# 当前客户端持久化队列
 
-xcsc owns the opaque spool container, atomic publication, ordering, capacity,
-locking, acknowledgement, corruption isolation and delivery cancellation. Products
-own only payload codecs, collection timing and their transport protocol.
+xcsc 负责不解释业务内容的 Spool 容器、原子发布、排序、容量、锁、确认、损坏隔离及投递取消。产品负责载荷编解码、采集时机和传输协议。
 
-## Current storage contract
+## 当前存储契约
 
-There is exactly one reader. Each record contains the `SARMGSPOOL` magic and current
-format marker, 16-byte record ID, priority, creation time, bounded contract ID,
-32-bit payload length, opaque payload bytes and a SHA-256 checksum. No product DTO
-or JSON byte array is serialized by the spool. The checksum detects corruption;
-it is not a MAC and does not defend against a malicious writer with the same OS
-identity. Container identity, priority and timestamp must exactly match the
-canonical filename. Unknown formats and invalid bodies are not converted.
+当前格式只由一个读取实现处理。每条记录包含 `SARMGSPOOL` 魔数及当前格式标记、16 字节记录 ID、优先级、创建时间、长度受限的契约 ID、32 位载荷长度、不透明的载荷字节和 SHA-256 校验和。Spool 不序列化产品 DTO，也不把载荷改为 JSON 字节数组。校验和用于发现损坏，不是 MAC，不能防御具有同一操作系统身份的恶意写入者。容器身份、优先级和时间戳必须与规范文件名完全一致；未知格式和无效记录体不会自动转换。
 
-The lower numeric priority is read first, then creation time and record ID provide
-a stable order. Negative creation times and noncanonical identifiers are rejected.
-An acknowledgement removes only the selected current record and syncs its parent.
-Duplicate acknowledgement returns `RecordNotFound`; a product may explicitly treat
-an already-acknowledged report as complete.
+读取顺序先按优先级数值从低到高，再按创建时间和记录 ID 稳定排序。负数创建时间和不规范的标识会被拒绝。确认只删除所选的当前记录，并同步其父目录。重复确认返回 `RecordNotFound`；产品可以显式将已经确认的报告视为已完成。
 
-The process-exclusive spool lock is acquired before cleanup. A process-local mutex
-serializes the complete capacity-check/publication and read/ack/quarantine
-sequences. Only the exact current `.xcsc-atomic-<32 lowercase hex>.tmp` namespace
-can be cleaned after acquiring the lock; arbitrary `.tmp` files are preserved and
-cause failure. Quarantine uses no-clobber publication and retains the original
-container bytes without replacing existing evidence. The finite
-`QuarantineReason` selects `.bad` for corruption/invalid payload and `.identity`
-for a local delivery identity mismatch. Both categories preserve the container and exclude its ID from ordinary ACK.
+清理前必须取得进程排他的 Spool 锁。进程内互斥锁将完整的容量检查及发布操作、读取及确认或隔离操作串行执行。取得锁后，只允许清理当前精确的 `.xcsc-atomic-<32 lowercase hex>.tmp` 命名空间，即名称中间为 32 个小写十六进制字符的临时文件；其他任意 `.tmp` 文件会被保留，并使操作失败。隔离采用不覆盖发布，保留原始容器字节，不替换已有证据。有限枚举 `QuarantineReason` 对损坏或无效载荷选择 `.bad`，对本机投递身份不一致选择 `.identity`。两类隔离都保留容器，并将其 ID 排除在普通 ACK 确认之外。
 
-## Limits and I/O
+## 上限与 I/O
 
-`desktop-client` declares hard ceilings of 1 MiB payload, 256 MiB spool and 4096
-records. Components declaring `bounded-spool` must declare all three limits;
-conformance rejects omissions, unknown keys, booleans, nonintegers, zero and values
-above the Profile. Rust runtime validation uses the same ceilings, with a test
-binding them to the checked Profile.
+`desktop-client` 声明的硬上限为：载荷 1 MiB、队列 256 MiB、记录 4096 条。声明 `bounded-spool` 的组件必须同时声明三个限制；一致性检查拒绝缺项、未知键、布尔值、非整数、零值和超过能力配置上限的值。Rust 运行时使用相同上限，并通过测试将常量与已检查的能力配置绑定。
 
-`max_bytes` counts physical container bytes, including metadata and quarantines,
-not just payload bytes. Quarantines also consume the entry budget. The stable
-zero-length lock file does not consume a record slot. All records are read through
-a bounded reader before decoding; oversized but structurally named records are
-quarantined, not loaded unboundedly. Directory scans are bounded and errors are
-propagated, never discarded by `filter_map(Result::ok)`.
+`max_bytes` 统计实际容器字节，包括元数据和隔离记录，而非仅统计载荷。隔离记录也消耗条目预算；稳定的零长度锁文件不占记录槽位。所有记录在解码前都通过有界读取器读取；名称结构正确但体积超限的记录会被隔离，不会无限制加载。目录扫描有预算限制，错误会向上返回，不使用 `filter_map(Result::ok)` 丢弃错误。
 
-On Unix, enumeration, reads, publication and removal are relative to a held private
-directory descriptor. Renaming or replacing the original path cannot redirect
-those operations. Symlink, hardlink and special-file entries fail closed without
-being read or removed. The directory is exclusive application state, not an
-untrusted shared namespace. Windows/macOS native safety and execution acceptance
-must be verified against the final source; a cross-compilation check alone does
-not prove those semantics.
+Unix 上的枚举、读取、发布和删除均相对于已持有的私有目录描述符执行。原始路径被重命名或替换，不会改变这些操作的目标。符号链接、硬链接和特殊文件均被拒绝，不读取或删除它们。该目录必须是应用独占状态空间。Windows/macOS 的原生安全行为和执行验收必须绑定最终源码；仅通过交叉编译不能证明这些语义。
 
-`Spool::inspect_existing` uses the same bounded current-namespace inventory for
-read-only status and doctor commands. It never creates a directory or lock file,
-acquires the writer's lock, removes a temporary, or quarantines a record. Known
-quarantines make the inventory unhealthy; `identity_mismatch_entries` reports
-the identity subset of `quarantined_entries`. Unknown names, nonempty lock files and
-unsafe entries fail closed. A writer's active temporary or concurrent removal can
-cause a transient inspection error; the result is not a transactional snapshot.
-This inventory does not verify payload checksums and must not be presented as a
-full data-integrity check.
+`Spool::inspect_existing` 使用相同的、有界当前命名空间清单，供只读状态和诊断命令使用。它不创建目录或锁文件，不获取写锁，不删除临时文件，也不隔离记录。已有隔离记录会使清单处于非健康状态；`identity_mismatch_entries` 表示 `quarantined_entries` 中身份不一致的子集。未知名称、非空锁文件和不安全条目会被拒绝。写入方的活动临时文件或并发删除可能导致暂时的检查错误，因此结果不是事务快照。检查不验证载荷校验和，不能作为完整数据完整性检查呈现。
 
-`Spool::inspect_directory(&PrivateDirectory, SpoolLimits)` borrows an already
-anchored directory capability and runs the same inventory without reopening its
-path or choosing another access policy. `inspect_existing` opens the administrative
-directory and delegates to this entry point. Products with an authoritative Windows
-SCM service policy can supply the directory opened with that exact policy; shared
-runtime code owns parsing and health statistics. The capability still enforces
-its no-follow, identity and private ACL checks. Both entry points validate limits,
-retain writer locks, reject unknown entries, and leave files and metadata unchanged.
-They neither inspect payload integrity nor produce a transactional snapshot.
+`Spool::inspect_directory(&PrivateDirectory, SpoolLimits)` 借用已锚定的目录能力，执行相同清单检查，不重新打开路径或另选访问策略。`inspect_existing` 打开管理目录后委托给此入口。拥有权威 Windows SCM 服务策略的产品，可以传入按该精确策略打开的目录；解析和健康统计仍由公共运行时代码负责。目录能力继续执行不跟随链接、身份和私有 ACL 检查。两个入口均校验上限、保留写入方的锁文件、拒绝未知条目，不改变文件及元数据；它们均不验证载荷完整性，也不生成事务快照。
 
-On Unix, the owner or a root administrator may inspect private service-owned
-state through the administrative directory policy. The no-follow and private
-permission checks still apply; inspection does not change ownership, permissions,
-record bytes or inode identities. Root-only regression tests use a disposable
-spool owned by another uid and verify unchanged state alongside rejection of
-symlinks, public permissions and missing directories.
+Unix 上，属主或 root 管理员可通过管理目录策略检查服务拥有的私有状态。不跟随链接和私有权限检查仍然有效；检查不改变属主、权限、记录字节或 inode 身份。仅 root 执行的回归使用其他 uid 拥有的一次性队列，验证状态不变，同时验证符号链接、公开权限和缺失目录被拒绝。
 
-## Delivery and shutdown
+## 投递与关闭
 
-`DeliveryWorker<ClientDeliveryDriver>` owns the delivery/recovery loop, coalescing
-capacity-one notifications, deadlines, retry state, authorization pause, local
-queue failure tracking and shutdown. It does not know any product DTO, API route,
-pairing phase or credential file format. The product driver interprets recovery
-progress, installs complete credential snapshots and classifies protocol failures.
+`DeliveryWorker<ClientDeliveryDriver>` 负责投递及恢复循环、容量为一的合并通知、期限、重试状态、授权暂停、本机队列故障跟踪和关闭。它不理解产品 DTO、API 路由、配对阶段或凭据文件格式。产品驱动解释恢复进度、安装完整凭据快照，并分类协议故障。
 
-Recovery and delivery futures are owned directly, not detached tasks. Sampling
-wake edges and recovery timer events never discard an in-flight request. Only an
-explicitly renewed credential snapshot cancels the superseded request and
-restarts delivery; a stable report ID makes an unknown remote outcome retryable.
-An authorization failure preserves queued reports and pauses delivery until
-renewal. Ordinary wakes cannot bypass authorization or active backoff. Shutdown,
-a lost shutdown controller or closed sampling notifications cancel both owned
-futures. Product drivers own the shutdown of any auxiliary output workers.
+恢复和投递的异步任务由工作器直接持有，不分离为脱离管理的后台任务。采样唤醒和恢复计时事件不会丢弃在途请求。只有明确更新的凭据快照才会取消使用过期快照的请求，并重新开始投递；稳定的报告 ID 使远端结果未知时仍可重试。授权失败会保留队列报告，暂停投递直到凭据更新。普通唤醒不能绕过授权或当前退避。关闭、关闭控制器丢失或采样通知通道关闭，都会取消所持有的两个异步任务。产品驱动负责关闭辅助输出工作任务。
 
-`deliver_batch` is shared by the daemon and the explicit one-shot path. It handles
-at most 32 records, including permanently rejected and isolated records, then yields the batch
-boundary to its caller. Protocol adapters distinguish a definitive content
-rejection from transient failure and credential rejection. Only definitive
-content rejection authorizes discarding that record; a transient/authorization
-error retains it. The adapter returns the finite `FailureDisposition`, with
-Retain, Discard or Quarantine(reason).
-A typed local identity mismatch must be isolated, not discarded. The queue's
-required `quarantine` operation must preserve original bytes, and its failure
-stops the batch without a callback, fallback ACK or next send. The isolation
-callback runs only after durable mutation and is never the success/OTLP callback.
-Success is durably acknowledged before a bounded secondary
-output callback such as OTLP. A failed ack never invokes a secondary output or a
-discard callback. There is no await between a completed send, ack and callback.
+守护进程和显式单次投递共用 `deliver_batch`。每批最多处理 32 条记录，包括永久拒绝和已隔离的记录，随后将批次边界交还调用方。协议适配器区分确定的内容拒绝、暂时失败和凭据拒绝；只有确定的内容拒绝允许丢弃该记录，暂时失败或授权错误均保留记录。适配器返回有限枚举 `FailureDisposition`，结果为 Retain、Discard 或 Quarantine(reason)。
 
-`RetryBackoff` owns consecutive retry state, doubling, jitter and reset. It rejects
-zero base, maximum below base, maximum above 300 seconds and jitter above 50%.
-The final randomized delay cannot exceed the chosen maximum. Products may use a
-stricter maximum, such as 60 seconds for interactive pairing; they do not own
-another doubling loop. Sampling retains its separate business cadence and uses
-`sampling_jitter`.
+明确类型的本机身份不一致必须隔离，不能丢弃。队列必需的 `quarantine` 操作必须保留原始字节；失败时停止批次，不回调、不改用 ACK，也不继续发送下一条。隔离回调只在持久化变更完成后运行，且不能调用成功或 OTLP 回调。成功投递先持久化确认，再执行 OTLP 等有界辅助输出回调。确认失败不调用辅助输出或丢弃回调。发送完成、确认和回调之间没有异步等待。
 
-`QueueFailureStreak` owns the fixed 100-consecutive-local-failure threshold.
-Read, write and delivery operations have separate trackers; successes do not mask
-failures of a different operation. Network errors are not local disk failures.
-The desktop Profile records the batch, retry, jitter and failure bounds, and
-Rust tests bind the runtime constants to that Profile.
+`RetryBackoff` 负责连续重试状态、倍增、抖动和重置。基础间隔为零、最大值低于基础值、最大值超过 300 秒或抖动超过 50% 时均拒绝。最终随机延迟不能超过所选最大值。产品可选择更严格的上限，例如交互式配对的 60 秒，但不能另行维护一套倍增循环。采样保留独立的业务周期，并使用 `sampling_jitter`。
 
-Conformance rejects product-defined delivery workers, retry state, failure
-trackers, batch outcome enums, container/lock namespaces and named jitter/backoff
-implementations. Product pairing wire, report codecs, optional output adapters
-and business sampling remain product-owned.
+`QueueFailureStreak` 负责固定的连续 100 次本机失败阈值。读取、写入和投递分别跟踪，某种操作的成功不能掩盖另一种操作的失败。网络错误不属于本机磁盘故障。桌面能力配置记录批次、重试、抖动和故障上限，Rust 测试将运行时常量与该能力配置绑定。
 
-## Verification and remaining work
+一致性检查拒绝产品自行定义的投递工作器、重试状态、故障跟踪器、批次结果枚举、容器或锁命名空间，以及重复的抖动或退避实现。产品配对协议、报告编解码、可选输出适配器和业务采样仍由产品负责。
 
-Worker tests cover retry deadlines, repeated wake edges, recovery events during
-an in-flight send, authorization pause/renewal, snapshot cancellation, shutdown,
-closed controllers, invalid polling delays and persistent/reset local failures.
-Batch tests cover ack-before-export, failed ack, permanent rejection, the batch
-budget and cancellation retaining the head. Products validate their transport and
-[credential transaction adapters](credential-transactions.md) with integration
-tests. Windows/macOS native filesystem and service-lifecycle evidence is recorded
-separately from Linux tests.
+## 验证范围与待完成工作
 
-## Delivery session lifetime
+工作器测试覆盖重试期限、重复唤醒、发送期间的恢复事件、授权暂停和更新、快照取消、关闭、控制器关闭、无效轮询延迟以及本机故障的持续与重置。批处理测试覆盖先确认再导出、确认失败、永久拒绝、批次预算和取消后保留队首。产品通过集成测试验证传输及[凭据事务适配器](credential-transactions.md)。Windows/macOS 的原生文件系统及服务生命周期证据与 Linux 测试分别记录。
 
-`ClientSession` owns an anchored private state directory and `SingleInstanceLock`
-on `client.instance.lock`. Acquire it before delivery bootstrap or collection and
-retain it until shutdown. It neither loads credentials nor contacts a Server.
-Pairing uses its own short transaction lock; read-only diagnostics do not take
-the delivery session lock. Existing unsafe directory/lock metadata is rejected,
-not repaired. The lock inode remains after close and must not be deleted to
-force a second running instance.
+## 投递会话生命周期
 
-Products acquire the session before loading delivery identity or starting
-collection. Use its held directory to create the child queue and retain session
-ownership for the complete delivery lifetime, including shared queue clones.
-Read-only status and diagnostic commands do not acquire this lock.
+`ClientSession` 持有已锚定的私有状态目录，以及 `client.instance.lock` 上的 `SingleInstanceLock`。必须在投递初始化或采集之前获取，并持有至关闭。它不加载凭据，也不连接服务端。配对使用独立的短时事务锁，只读诊断不获取投递会话锁。已有不安全的目录或锁元数据会被拒绝，不会修复。关闭后锁 inode 保留，不能通过删除它强行运行第二实例。
 
-The Spool's own lock protects its queue namespace, including callers that do not
-use a state-root delivery session. Tests cover real process contention/release,
-unsafe lock rejection and held-directory rebinding. Product integration tests
-validate command lifetimes and concurrency with credential transactions.
+产品在加载投递身份或开始采集之前取得会话，使用会话持有的目录创建子队列，并在整个投递生命周期中保留会话所有权，包括共享队列克隆的生命周期。只读状态和诊断命令不获取此锁。
+
+Spool 自身的锁保护队列命名空间，也覆盖不使用状态根投递会话的调用方。测试覆盖真实进程争用及释放、不安全锁拒绝和持有目录被重新绑定。产品集成测试验证命令生命周期，以及与凭据事务并发时的行为。

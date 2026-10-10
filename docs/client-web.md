@@ -1,20 +1,20 @@
-# Client / Client Web 管理归属
+# 客户端及本机 Web 管理职责
 
 Web 按被管理对象划分，不按 React、原生 JavaScript、浏览器或目录名称划分。
 
-- 管理 Server 的用户、设备记录、备份任务、管理员和服务端配置的页面，以及其管理 API client，归 Server xcsc。
-- 管理本机 Client/客户端的配置、配对、启停、诊断和本机状态的页面，归 Client xcsc；产品页面与业务操作留在产品 client/client 源码中。
-- Client 为本机页面提供 loopback HTTP，并不使该客户端进程成为受 Server target 限制的业务 Server。
-- 两侧不得通过导入另一侧基础仓库的认证、Web shell 或 Runtime 来隐式混合行为；公共安全修复须分别评估两侧。
+- 管理服务端的用户、设备记录、备份任务、管理员和服务端配置的页面，以及其管理 API 调用代码，归对应服务端产品。
+- 管理本机客户端的配置、配对、启停、诊断和本机状态的页面，归客户端；通用机制由 xcsc 提供，产品页面与业务操作留在产品客户端源码中。
+- 客户端为本机页面提供回环 HTTP，并不使该客户端进程成为受服务端 target 限制的业务服务端。
+- 两侧不得通过导入另一侧基础仓库的认证、Web 框架或运行时来隐式混合行为；公共安全修复须分别评估两侧。
 
 ## 能力与接入
 
-产品按被管理对象选择 Profile，并在自己的仓库记录页面、路由及目标平台验收。目录名称不决定管理归属。
+产品按被管理对象选择能力配置，并在自己的仓库记录页面、路由及目标平台验收。目录名称不决定管理归属。
 
-桌面客户端将来若增加本机 Web，应通过可选 `local-web-management` 能力声明这一形态。本地 Web Adapter 由产品拥有，
-不声称已提炼出通用 Client Web UI 包。其本地一次性入口凭证、loopback Host/Origin、Bearer 会话、
-本机权限提升与服务控制边界独立于 Server 的管理员 Cookie/CSRF 协议，不能用 Server 政策覆盖它们。
+桌面客户端将来若增加本机 Web，应通过可选 `local-web-management` 能力声明这一形态。本地 Web 适配器由产品拥有，
+不声称已提炼出通用客户端 Web UI 包。其本地一次性入口凭证、回环 Host/Origin、Bearer 会话、
+本机权限提升与服务控制边界独立于服务端的管理员 Cookie/CSRF 协议，不能用服务端政策覆盖它们。
 
-xcsc 当前只提供 `authenticated-local-status` 的只读 Unix socket/Windows named pipe 通道，不提供
-HTML 页面、浏览器会话或控制路由。Client 的规范检查可扫描 Rust、JavaScript、HTML、TypeScript、Swift
+xcsc 当前只提供 `authenticated-local-status` 的只读 Unix socket/Windows 命名管道通道，不提供
+HTML 页面、浏览器会话或控制路由。客户端的规范检查可扫描 Rust、JavaScript、HTML、TypeScript、Swift
 和 Kotlin；若产品新增本机 Web，仍需在目标操作系统完成原生运行与权限验收。

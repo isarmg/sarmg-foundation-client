@@ -1,44 +1,17 @@
-# Client identity and credential ownership
+# 客户端身份与凭据所有权
 
-`xcsc::runtime::ClientIdentity` identifies a Client delivery context by
-product ID, instance ID and payload contract. All three participate in equality.
-Construction requires nonempty ASCII letters, digits, dots, dashes or underscores:
-product IDs are bounded to 128 bytes and instance IDs to 256 bytes. `ContractId`
-applies the same character policy with a 128-byte limit. Private fields and
-read-only accessors preserve validation after construction. `ensure_matches`
-rejects any differing dimension without echoing identifiers.
+`xcsc::runtime::ClientIdentity` 通过产品 ID、实例 ID 和载荷契约标识客户端投递上下文，比较身份时三个维度都必须相同。构造时各标识不能为空，且只能包含 ASCII 字母、数字、点、连字符或下划线：产品 ID 最多 128 字节，实例 ID 最多 256 字节。`ContractId` 使用相同字符规则，上限为 128 字节。私有字段和只读访问器保证构造后的值继续满足校验要求；`ensure_matches` 拒绝任意维度的不一致，且不会在错误中回显标识。
 
-An authorized `CredentialSnapshot` carries this identity, its durable revision
-and an `Arc<SecretString>`, captured under one short storage transaction. Cloning
-a snapshot preserves its identity and revision and shares secret ownership.
-A sender uses the captured identity throughout the request. Rotation constructs
-a complete replacement snapshot; the product adapter installs it atomically.
+已授权的 `CredentialSnapshot` 包含上述身份、持久化修订号以及 `Arc<SecretString>`，三者在同一个短时存储事务中一致读取。克隆快照会保留身份和修订号，并共享秘密的所有权。发送方在整个请求中使用捕获的身份。凭据轮换先构造完整的替换快照，再由产品适配器原子安装。
 
-Products own UUID constraints, identity filenames, payload fields, endpoint
-bindings and state recovery. xcsc runtime identity does not authenticate
-requests: TLS, remote authorization and credential revision checks remain
-separate requirements.
+UUID 约束、身份文件名、载荷字段、端点绑定和状态恢复由产品负责。xcsc 的运行时身份不负责请求认证；TLS、远端授权和凭据修订校验仍须分别完成。
 
-## Identity mismatch during delivery
+## 投递时的身份不匹配
 
-A product adapter compares each payload's identity with its authorized snapshot
-before sending. A local mismatch maps to
-`FailureDisposition::Quarantine(QuarantineReason::IdentityMismatch)`. The shared
-batch loop invokes the queue's durable quarantine operation before its callback.
-The Spool preserves the original container bytes in the `.identity` category.
-A failed quarantine stops the batch without acknowledgement or a callback.
+产品适配器发送前，将每份载荷的身份与已授权快照比较。本机身份不一致对应 `FailureDisposition::Quarantine(QuarantineReason::IdentityMismatch)`。公共批处理循环先调用队列的持久化隔离操作，再执行隔离回调。Spool 将原始容器字节保存在 `.identity` 分类中。隔离失败时立即停止批次，不确认记录，也不执行回调。
 
-Quarantined entries consume capacity and survive restart.
-`Spool::inspect_existing` reports `identity_mismatch_entries` as a subset of
-`quarantined_entries`. Inspection does not acquire the writer lock, read payloads
-or validate payload checksums. Products decide how to present these observations
-and how operators review retained evidence. xcsc does not relabel,
-automatically replay or purge an isolated record.
+隔离记录占用队列容量，重启后仍保留。`Spool::inspect_existing` 将 `identity_mismatch_entries` 作为 `quarantined_entries` 的子集报告。检查不会获取写锁、读取载荷或验证载荷校验和。产品决定如何呈现这些观察结果，以及如何让运维人员审阅保留的证据。xcsc 不会重新标记、自动重放或清除已隔离的记录。
 
-## Verification
+## 验证范围
 
-xcsc tests cover identifier dimensions, byte budgets, exact equality,
-secret-sharing snapshot clones, durable quarantine, publication collisions and
-batch ordering. Product repositories validate their wire identities, storage
-adapters and command behavior. Native filesystem acceptance is recorded for each
-target platform.
+xcsc 的测试覆盖标识维度、字节预算、精确相等比较、共享秘密的快照克隆、持久化隔离、发布冲突和批次顺序。产品仓库验证自身的线上协议身份、存储适配器和命令行为。各目标平台的原生文件系统验收结果分别记录。

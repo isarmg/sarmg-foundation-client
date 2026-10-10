@@ -1,65 +1,27 @@
-# Current mobile FFI boundary
+# 当前移动端 FFI 边界
 
-Enable the `mobile-ffi` feature to import `xcsc::mobile_ffi` from the single
-root package. `jni` enables this feature automatically. The strict C header
-generator reads `src/mobile_ffi/mod.rs`; it accepts no unsupported ABI syntax.
+启用 `mobile-ffi` 功能后，可从唯一的根包导入 `xcsc::mobile_ffi`；`jni` 会自动启用该功能。严格的 C 头文件生成器读取 `src/mobile_ffi/mod.rs`，遇到不支持的 ABI 语法会拒绝生成。
 
-xcsc owns ABI revision 1, panic containment, input and output bounds,
-generational handles, result allocation/release, JNI Unicode validation and
-exception classes. Products own DTOs, storage operations and business state
-identity. ABI 1 uses explicit input lengths and caller-provided result storage.
+xcsc 负责 ABI 修订 1、panic 捕获边界、输入输出上限、带代次的句柄、结果分配与释放、JNI Unicode 校验和异常类型。产品负责 DTO、存储操作和业务状态身份。ABI 1 使用显式输入长度及调用方提供的结果存储。
 
-## C contract
+## C 接口契约
 
-Every operation accepts explicit borrowed input lengths and writable result
-storage. The returned status and result status agree. A successful result has an
-optional numeric value and owned bytes; failure has value zero and a bounded,
-redacted UTF-8 message. Null nonempty input, misaligned output, excess lengths and
-invalid UTF-8 are rejected before product work. Input is capped at 16 MiB, output
-at 16 MiB and the handle registry at 4096 slots. Products can tighten input limits.
-OutputBuffer bounds serializer growth before allocation, not only after encoding.
+每个操作接收借用输入的显式长度及可写结果存储。函数返回的状态码与结果中的状态码一致。成功结果包含可选数值和拥有所有权的字节；失败结果的数值为零，并附带长度受限、已脱敏的 UTF-8 消息。非空输入使用空指针、结果地址未对齐、长度超限或 UTF-8 无效时，在执行业务操作前拒绝。输入、输出各最多 16 MiB，句柄注册表最多 4096 个槽位；产品可以进一步收紧输入上限。OutputBuffer 在分配前限制序列化器增长，而非只在编码完成后检查长度。
 
-The host must release each result in its original storage with
-xcsc_ffi_result_free_v1. Release resets that storage and is idempotent for the
-reset result. Copying an owned result and freeing both copies is invalid. No ABI
-wrapper can prove that an arbitrary nonnull foreign pointer is readable/writable;
-allocation validity, alignment and non-aliasing remain explicit host obligations.
+宿主必须通过 xcsc_ffi_result_free_v1，在每份结果的原始存储位置释放结果。释放会重置该存储，对已经重置的结果重复释放是幂等操作。复制拥有字节所有权的结果后再释放两份副本属于无效操作。任何 ABI 封装都不能证明任意非空外部指针可读或可写；存储有效性、地址对齐及禁止别名冲突仍是宿主必须满足的前提。
 
-The guard catches unwinding panics as status 255. A thread-scoped panic hook
-suppresses payloads while an FFI operation is active and delegates non-FFI panics
-to the prior hook. The host must not replace this hook after initialization.
-Abort-mode compilation is rejected; process aborts, invalid pointers and OS
-termination are not recoverable Rust panics.
+守卫将展开式 panic 转为状态码 255。线程范围的 panic 钩子在 FFI 操作期间抑制异常载荷，其他 panic 交给此前的钩子。初始化后宿主不能替换此钩子。构建时拒绝中止式 panic 模式；进程中止、无效指针和操作系统终止均不是可恢复的 Rust panic。
 
-Handles carry slot and generation. Closed generations cannot access later objects;
-exhausted generations are retired permanently, and a poisoned registry fails
-closed. Product operations clone Arc handles and do not hold the registry mutex
-through I/O. A call that already acquired an Arc can finish after another thread
-closes the handle; new lookups fail.
+句柄包含槽位和代次。关闭的旧代次不能访问后来创建的对象；代次耗尽后该槽位永久退役，注册表锁中毒时拒绝操作。产品操作克隆 Arc 句柄，不在 I/O 期间持有注册表互斥锁。已经取得 Arc 的调用可在其他线程关闭句柄后完成，但新的查找会失败。
 
-## JNI and bindings
+## JNI 与语言绑定
 
-JNI 0.22 native entrypoints accept `jni::EnvUnowned`; the shared `jni::guard`
-borrows `jni::Env` only inside its controlled callback. Product callbacks do not
-construct an Env from raw pointers. This public Rust type change is reflected in
-xcsc 1.0.0; the current C ABI is revision 1.
+JNI 0.22 的原生入口接收 `jni::EnvUnowned`；公共 `jni::guard` 仅在受控回调内部借用 `jni::Env`。产品回调不能从原始指针构造 Env。xcsc 1.0.0 已包含此公开 Rust 类型变更，当前 C ABI 仍为修订 1。
 
-xcsc reads bounded UTF-16 and rejects unpaired surrogates rather than
-silently replacing text. Invalid arguments map to IllegalArgumentException,
-invalid handles to IllegalStateException, resource exhaustion to OutOfMemoryError,
-and internal failures/panics to RuntimeException. Pending JVM exceptions are
-preserved. JNI sentinel returns accompany exceptions; they are not success values.
+xcsc 有界读取 UTF-16，拒绝未配对的代理项，不会静默替换文本。无效参数映射为 IllegalArgumentException，无效句柄映射为 IllegalStateException，资源耗尽映射为 OutOfMemoryError，内部失败或 panic 映射为 RuntimeException。已有的 JVM 待处理异常会被保留。JNI 哨兵返回值伴随异常返回，不表示成功。
 
-tools/ffi_header.py generates the C header from the restricted current Rust ABI
-declarations and rejects unsupported types. Products check the generated file
-against source. Swift imports the C module, not manually redeclared symbols;
-Kotlin checks the runtime ABI before other native calls. Business identity checks
-remain independent of the ABI revision.
+tools/ffi_header.py 从当前 Rust ABI 声明的受限语法生成 C 头文件，拒绝不支持的类型。产品将生成文件与源码核对。Swift 导入 C 模块，不手工重复声明符号；Kotlin 在其他原生调用之前检查运行时 ABI。业务身份校验与 ABI 修订相互独立。
 
-## Verification and remaining acceptance
+## 验证范围与待完成验收
 
-Rust tests cover lengths, UTF-8, output ownership/budgets, stale/exhausted handles,
-panic status and subprocess log redaction. Products validate their exported dynamic
-libraries with generated C bindings, a real JVM and the target mobile runtime.
-Android, iOS and iOS Simulator execution evidence is recorded separately from host
-Rust/C/JVM checks and is required for the corresponding product release.
+Rust 测试覆盖长度、UTF-8、输出所有权及预算、过期或耗尽的句柄、panic 状态和子进程日志脱敏。产品使用生成的 C 绑定、真实 JVM 和目标移动平台运行时验证导出的动态库。Android、iOS 和 iOS Simulator 的执行证据分别记录，不与宿主 Rust/C/JVM 检查混用；对应产品发布时必须具备目标平台的实际执行证据。

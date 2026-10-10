@@ -1,42 +1,21 @@
-# Credential transactions
+# 凭据事务
 
-`xcsc::runtime` owns `CredentialStore`, `CredentialSnapshot`,
-`CredentialAuthorization` and `CredentialMutation`. Products implement storage
-adapters and own revision identities, rotation journals, pairing protocols,
-endpoint bindings and crash recovery.
+`xcsc::runtime` 提供 `CredentialStore`、`CredentialSnapshot`、`CredentialAuthorization` 和 `CredentialMutation`。产品实现存储适配器，并负责修订身份、轮换日志、配对协议、端点绑定和崩溃恢复。
 
-The interface is synchronous. The adapter retains an exclusive storage lock for
-each complete operation and serializes against every writer of the same state.
-Network I/O belongs outside this transaction.
+接口采用同步调用。适配器在每次完整操作期间持有排他的存储锁，使同一状态的所有写入方串行执行。网络 I/O 必须放在事务外。
 
-| Operation | Contract |
+| 操作 | 契约 |
 |---|---|
-| `load` | Return an authorized identity, durable revision and shared secret captured consistently. Missing or invalidated credentials return `None`; unsafe storage, malformed state and inconsistent bindings return an error. |
-| `replace` | Revalidate the prepared replacement against the durable journal under the transaction lock. Publish authorization as part of the complete recoverable commit. A superseded journal fails without modifying credentials. |
-| `invalidate` | Compare the rejected in-flight revision with the current durable revision. Return `Applied` for the current revision or `Superseded` without writes when it differs. Preserve any incomplete rotation. |
+| `load` | 一致读取并返回已授权身份、持久化修订号和共享秘密。凭据缺失或已失效时返回 `None`；存储不安全、状态格式错误或绑定不一致时返回错误。 |
+| `replace` | 在事务锁内，依据持久化日志重新验证已准备的替换结果。授权状态必须与完整、可恢复的提交一起发布。日志已被后续轮换取代时操作失败，不修改凭据。 |
+| `invalidate` | 将被拒绝的在途请求修订号与当前持久化修订号比较。匹配时返回 `Applied`；不匹配时返回 `Superseded`，且不写入状态。任何未完成的轮换均须保留。 |
 
-Only `authorized` and `reauth_required` are valid serialized authorization
-values. Unknown spellings fail deserialization. Snapshot clones preserve their
-identity and revision and share `Arc<SecretString>`; formatting redacts secrets.
-The last shared owner releases zeroizing storage.
+序列化授权状态只允许 `authorized` 和 `reauth_required`，未知拼写会导致反序列化失败。快照克隆保留身份和修订号，并共享 `Arc<SecretString>`；格式化输出会脱敏。最后一个共享所有者释放存储时清零秘密。
 
-## Product adapter responsibilities
+## 产品适配器职责
 
-A pending replacement does not change the revision of the active credential.
-A delayed rejection for credential A cannot invalidate credential B. Products
-must compare against the durable active revision, retain complete snapshot
-identity/endpoint associations, and expose renewed snapshots only after the
-replacement is committed. Recovery and journal ordering follow the product's
-storage protocol.
+待提交的替换不会改变当前有效凭据的修订号。针对凭据 A 的延迟拒绝不能使凭据 B 失效。产品必须与持久化的当前有效修订号比较，保留快照身份与端点的完整关联，并且只在替换提交后向调用方提供新快照。恢复步骤和日志顺序遵循产品自身的存储协议。
 
-`DeliveryWorker` installs renewed recovery results through the product driver's
-`apply_recovery` method. Returning `RecoveryUpdate::Renewed` cancels delivery
-using the superseded snapshot and schedules a batch with the replacement.
-Adapters own any auxiliary workers and must terminate workers whose snapshot is
-superseded or whose driver is dropped.
+`DeliveryWorker` 通过产品驱动的 `apply_recovery` 方法安装更新后的恢复结果。返回 `RecoveryUpdate::Renewed` 会取消使用过期快照的投递，并安排使用替换快照的下一批投递。辅助工作任务由适配器管理；快照被替换或驱动被销毁时，适配器必须终止对应任务。
 
-xcsc tests validate exact authorization spellings and snapshot clone
-semantics. Each product tests transaction locking, rotation, delayed rejection,
-superseded replacements, incomplete commits, unsafe state and recovery against
-its concrete storage adapter. Linux execution alone does not establish
-Windows/macOS filesystem or native HTTP behavior.
+xcsc 测试验证授权状态的精确拼写和快照克隆语义。各产品针对实际存储适配器验证事务锁、轮换、延迟拒绝、过期替换、未完成提交、不安全状态和恢复。仅在 Linux 上执行测试，不能证明 Windows/macOS 文件系统或原生 HTTP 行为。
