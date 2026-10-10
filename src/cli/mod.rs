@@ -8,6 +8,7 @@ use elevation::windows_quote_argument;
 pub use elevation::{
     WindowsSetupElevation, pause_installer_setup, prepare_windows_setup_elevation,
 };
+mod editor;
 mod service;
 pub use service::Service;
 #[allow(unsafe_code)]
@@ -18,15 +19,14 @@ pub use tail::{TailReadError, read_tail_lines};
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
-#[cfg(all(test, unix))]
-use std::time::Instant;
 use std::{
     collections::BTreeMap,
     io::{self, IsTerminal, Read, Write},
     path::Path,
-    process::{Command, Stdio},
     time::Duration,
 };
+#[cfg(all(test, unix))]
+use std::{process::Command, time::Instant};
 use zeroize::Zeroizing;
 
 #[derive(Debug)]
@@ -275,6 +275,9 @@ pub fn setup_service_intent(status: &Value) -> (bool, bool) {
 /// Edit a product-owned JSON configuration in the user's terminal editor.
 /// The caller remains responsible for schema validation and a revision-checked
 /// atomic commit, so this helper cannot bypass product concurrency controls.
+/// VISUAL takes precedence over EDITOR. An existing literal executable path
+/// is preserved; otherwise arguments use POSIX quoting on Unix and native
+/// command-line quoting on Windows. No shell expansion is performed.
 /// The edited path may be atomically replaced by the editor; the replacement
 /// is opened without following links and read through one bounded handle.
 pub fn edit_json(current: &Value) -> Result<Value> {
@@ -292,13 +295,7 @@ pub fn edit_json(current: &Value) -> Result<Value> {
     serde_json::to_writer_pretty(file.as_file_mut(), current).map_err(storage_error)?;
     file.as_file_mut().write_all(b"\n").map_err(storage_error)?;
     file.as_file_mut().sync_all().map_err(storage_error)?;
-    let status = Command::new(editor)
-        .arg(file.path())
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .map_err(|error| fail(8, "editor_failed").with_detail(error))?;
+    let status = editor::run(&editor, file.path())?;
     if !status.success() {
         return Err(fail(2, "editor_cancelled"));
     }

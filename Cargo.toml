@@ -1,7 +1,7 @@
 [package]
 name = "xcsc"
 description = "Client-only common support: protected storage, lifecycle, portable logs, secrets, XML and mobile FFI"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2024"
 rust-version = "1.99"
 authors = ["sarmg <isarmg@163.com>"]
@@ -40,6 +40,7 @@ tracing = { version = "0.1", optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
+shlex = "2.0.1"
 libc = "0.2.190"
 
 [target.'cfg(target_os = "linux")'.dependencies]

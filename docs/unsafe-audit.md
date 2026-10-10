@@ -4,7 +4,7 @@
 
 Rust 实现为根目录唯一 `xcsc` 包，模块位于 `src/<模块>/`，只保留根 Cargo.toml 和 Cargo.lock；不存在独立子包或工作区外壳。CLI 根模块负责参数、错误和输出组合，`terminal.rs` 负责有界控制终端输入与模式恢复，`elevation.rs` 负责 Windows UAC/句柄，`service.rs` 负责系统服务与共享进程捕获，`tail.rs` 负责受预算约束的日志尾读取。产品机制不反向进入 xcsc。
 
-CLI 已删除 crate 级 `allow(unsafe_code)`。根包的 `unsafe_code = deny` 仍有效，仅 `terminal`、Windows `elevation` 与构造真实终端的测试局部允许。单体合并只迁移既有原生调用；Windows 日志和离线 SQLite 的必要原生边界连同原安全前提及回归进入相应模块，没有放宽 unsafe 门禁。其必要性及前置条件沿用 [逐函数记录](unsafe-review-0.10.0.md)：信号/控制终端、UAC、ACL/Token/SID、平台本机对端身份以及 C ABI 原始输入与结果所有权均是标准库无等价功能的边界。业务逻辑、服务进程捕获与普通文件字节 I/O 使用安全 API。
+CLI 已删除 crate 级 `allow(unsafe_code)`。根包的 `unsafe_code = deny` 仍有效，仅 `terminal`、Windows `elevation`、Windows 编辑器参数解析函数与构造真实终端的测试局部允许。单体合并只迁移既有原生调用；Windows 日志和离线 SQLite 的必要原生边界连同原安全前提及回归进入相应模块，没有放宽 unsafe 门禁。其必要性及前置条件沿用 [逐函数记录](unsafe-review-0.10.0.md)：信号/控制终端、UAC、ACL/Token/SID、平台本机对端身份以及 C ABI 原始输入与结果所有权均是标准库无等价功能的边界。业务逻辑、服务进程捕获与普通文件字节 I/O 使用安全 API。
 
 Windows terminal、token 和提权进程改由标准库 `OwnedHandle` 管理，删除自定义 `CloseHandle` Drop。接管原始句柄仍需一个局部 unsafe 块，前提是 CreateFileW、OpenProcessToken 或 ShellExecuteExW 已成功且转移唯一所有权。借用句柄只在所有者存活时调用；控制台模式守卫先恢复模式再关闭 input。Windows 完整 CLI、文件与 runtime 含测试源码已通过严格交叉 Clippy。
 
@@ -43,3 +43,5 @@ macOS 的成功 `bootout` 与后续卸载观察共享原操作期限：只有实
 单体结构、客户端日志归属和 Linux 离线维护功能开关的当前约束见[单体说明](monolithic-client.md)。以上历史 macOS 113 项、Python 23 项及交叉检查只记录对应原始源码的事实，不作为当前单体最终验收证据；当前结果由本次最终源码测试和原生 CI 分别记录。
 
 Linux 离线 `state_file` 锁采用私有 RAII guard，在 flock 成功后、身份复验前接管；隐式退出及复验失败显式解开原描述符锁，防止 fork/dup 别名暂存使维护仍被占用。显式交接成功标记不再持锁，避免 Drop 再次解开别名后来取得的新锁。使用安全的 `File::unlock`，不增加 unsafe；回归核对真实同描述符别名、实例/维护双锁、inode与属主权限不变，以及旧 inode 复验失败不会释放替换 inode 上的新 guard。
+
+Windows 编辑器命令解析使用 `CommandLineToArgvW`，因为标准库不提供原生参数拆分。输入保留 UTF-16，拒绝内嵌 NUL；空输入不调用会回退到当前可执行文件的原生 API。成功返回的参数数组和每个 NUL 结尾字符串在唯一 allocation guard 存活期间复制到 `OsString`，随后由 `LocalFree` 释放一次；所有退出路径均由 guard 管理。Unix 使用已有锁定依赖 `shlex` 的字节解析 API，不增加 unsafe。两端都不执行 shell，临时文件路径作为独立参数追加。
