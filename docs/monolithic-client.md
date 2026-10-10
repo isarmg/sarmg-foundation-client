@@ -22,9 +22,8 @@ xcsc 的 Rust 部分只有根目录一个包 `xcsc`、一个 `Cargo.toml` 和一
 
 `state_file` 使用中立文件名 `.state-instance.lock`、`.state-maintenance.lock`
 和 `.state-maintenance-pending.json`，校验当前元数据及精确结构指纹。
-不保留旧文件名兼容、回退或自动迁移。部署新格式前必须停止旧服务、备份
-配置和数据并重新部署；不得混用旧目录。具体升级定义、恢复日志、服务停止
-策略与业务 SQL 由 xssc 拥有。客户端自身日志用 `LogRecord::client` 和 `scope=client`；离线查询仍能读取
+这些名称描述当前格式。具体升级定义、恢复日志、服务停止
+策略与业务 SQL 由 xssc 拥有，操作前阅读该工具的实际升级说明。客户端自身日志用 `LogRecord::client` 和 `scope=client`；离线查询仍能读取
 既有 `scope=server` 记录并保持其身份。
 
 维护及实例 flock 在取得后立即由私有 RAII guard 持有，后续身份检查失败和
