@@ -60,43 +60,11 @@ xcsc 的 Rust 部分只有根目录一个包 `xcsc`、一个 `Cargo.toml` 和一
 
 ## 开发检查
 
-在仓库根目录执行：
+公共政策、Python、Rust 格式与工作区检查统一见[开发指南](development.md)。
+平台专项步骤按 [Linux](platforms/linux.md)、[Windows](platforms/windows.md)、
+[macOS](platforms/macos.md)、[Android](platforms/android.md)或 [iOS](platforms/ios.md)查阅。
 
-```sh
-python3 scripts/check-xcsc.py
-python3 -m unittest discover -s tools/tests -v
-cargo fmt --all -- --check
-cargo test --locked -p xcsc --all-targets --all-features
-cargo clippy --locked -p xcsc --all-targets --all-features -- -D warnings
-```
-
-第一条检查单包结构、模块和平台/feature 门禁及根 lock 图。Python 用例验证
-依赖方向、官方源码身份、ABI 所有者与严格 C 头生成器的负向边界。`fmt` 检查
-格式；Rust 测试运行平台机制；Clippy 将警告视为错误。Linux 的完整测试包含
-离线维护能力，Windows/macOS 的 `--all-features` 不编译 Linux 维护模块。
-
-JNI 集成用例明确 ignored，须在 Java 17 环境单独执行：
-
-```sh
-cargo test --locked -p xcsc --features jni \
-  native_jvm_keeps_unicode_budgets_pending_exceptions_and_public_errors \
-  -- --ignored --nocapture
-```
-
-该命令覆盖真实 JVM 的调用帧、Unicode、字节预算、待处理异常与公开错误，
-不会把默认测试跳过状态当作成功证据。root-only 持久化队列检查由 Linux CI 找到
-唯一的 xcsc 测试二进制后，执行精确模块路径的 ignored 用例；仅使用临时
-服务属主测试夹具，不操作运行中的服务或用户数据。
-
-移动交叉检查保持真实 target API：
-
-```sh
-cargo check --locked -p xcsc --all-features --lib --target aarch64-linux-android
-cargo check --locked -p xcsc --all-features --lib --target aarch64-apple-ios-sim
-```
-
-这两条只证明指定 target 可编译。Windows 原生 ACL/轮转、macOS 沙箱/LaunchAgent、
-Android/iOS 实际发行物分别由相应最终源码 CI 验收。
+Windows ACL、Apple 沙箱和移动设备结果各自记录；编译检查不会替代原生执行。
 
 ## ABI、迁移与历史证据
 

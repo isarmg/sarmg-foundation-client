@@ -22,21 +22,15 @@ Python 检查产品来源、能力和绑定生成；Rust 测试覆盖当前主�
 | 能力清单或消费检查 | Python 工具测试和一个实际消费者的检查 |
 | 产品协议适配器 | 在产品仓库验证协议与业务状态 |
 
-真实 Java 17 JVM 测试单独启用：
+按目标平台查看工具链、原生构建与专项排障：
 
-```sh
-cargo test --locked -p xcsc --features jni   native_jvm_keeps_unicode_budgets_pending_exceptions_and_public_errors   -- --ignored --nocapture
-```
+- [Linux](platforms/linux.md)：GNU x86_64 与离线维护测试
+- [Windows](platforms/windows.md)：MSVC、ACL 与服务身份
+- [macOS](platforms/macos.md)：物理临时路径及 Apple 沙箱回归
+- [Android](platforms/android.md)：移动目标与 Java 17 JVM 专项测试
+- [iOS](platforms/ios.md)：实机/模拟器目标与 Swift/C ABI 集成
 
-移动目标检查：
-
-```sh
-rustup target add aarch64-linux-android aarch64-apple-ios-sim
-cargo check --locked -p xcsc --all-features --lib --target aarch64-linux-android
-cargo check --locked -p xcsc --all-features --lib --target aarch64-apple-ios-sim
-```
-
-交叉检查确认可编译，原生文件权限、设备运行与安装仍在对应平台测试。macOS 文件测试使用物理临时路径，如 `TMPDIR=/private/tmp`，以符合不跟随符号链接的路径规则。
+交叉检查验证目标可编译，文件权限、设备运行和产品安装须在对应原生环境验证。
 
 ## 发布和产品更新
 

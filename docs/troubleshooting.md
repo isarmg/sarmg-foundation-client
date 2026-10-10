@@ -1,6 +1,6 @@
 # 排查问题
 
-先保留错误码、目标平台、xcsc 版本和失败操作。日志中的令牌、凭据、原始载荷和用户私有路径按需要脱敏。
+先保留错误码、目标平台、xcsc 版本和失败操作。日志中的令牌、凭据、原始载荷和用户私有路径按需要脱敏。平台工具链、文件权限和原生集成问题按 [Linux](platforms/linux.md#运行身份与排障)、[Windows](platforms/windows.md#路径与故障检查)、[macOS](platforms/macos.md#平台排障)、[Android](platforms/android.md#集成顺序与排障)或 [iOS](platforms/ios.md#沙箱路径与故障检查)查阅。
 
 | 现象 | 检查和处理 |
 |---|---|
